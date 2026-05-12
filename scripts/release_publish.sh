@@ -19,6 +19,11 @@ PROVIDER_HOME="${AGENTHUB_RELEASE_PROVIDER_HOME:-}"
 UPLOAD_ENABLED="${AGENTHUB_RELEASE_UPLOAD:-0}"
 SKIP_CI="${AGENTHUB_RELEASE_SKIP_CI:-0}"
 SKIP_SYNC="${AGENTHUB_RELEASE_SKIP_SYNC:-0}"
+PUBLIC_GIT_PUSH="${AGENTHUB_PUBLIC_GIT_PUSH:-0}"
+PUBLIC_GIT_REMOTE="${AGENTHUB_PUBLIC_GIT_REMOTE:-origin}"
+PUBLIC_GIT_BRANCH="${AGENTHUB_PUBLIC_GIT_BRANCH:-main}"
+PUBLIC_GIT_COMMIT_MESSAGE="${AGENTHUB_PUBLIC_GIT_COMMIT_MESSAGE:-Sync public AgentHub export}"
+PUBLIC_GIT_REQUIRE_CLEAN_SOURCE="${AGENTHUB_PUBLIC_GIT_REQUIRE_CLEAN_SOURCE:-1}"
 
 export PYTHONUTF8="${PYTHONUTF8:-1}"
 export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
@@ -72,11 +77,46 @@ upload_archive() {
   printf '\nDownload URL: %s/%s\n' "${download_base%/}" "$upload_path"
 }
 
+push_public_git_tree() {
+  if [[ "$PUBLIC_GIT_PUSH" != "1" ]]; then
+    log "Public git push skipped; set AGENTHUB_PUBLIC_GIT_PUSH=1 to commit and push the publish tree"
+    return
+  fi
+
+  require_command git
+  [[ "$VERIFY_ROOT" != "$SOURCE_ROOT" ]] || fail "AGENTHUB_PUBLIC_GIT_PUSH requires a separate AGENTHUB_PUBLISH_ROOT"
+  [[ -d "$VERIFY_ROOT/.git" ]] || fail "publish tree is not a git repository: $VERIFY_ROOT"
+
+  if [[ "$PUBLIC_GIT_REQUIRE_CLEAN_SOURCE" == "1" && -d "$SOURCE_ROOT/.git" ]]; then
+    local source_status
+    source_status="$(git -C "$SOURCE_ROOT" status --short)"
+    if [[ -n "$source_status" ]]; then
+      printf 'source tree has uncommitted changes:\n%s\n' "$source_status" >&2
+      fail "commit or stash source changes before public git push, or set AGENTHUB_PUBLIC_GIT_REQUIRE_CLEAN_SOURCE=0"
+    fi
+  fi
+
+  git -C "$VERIFY_ROOT" add -A
+  local publish_status
+  publish_status="$(git -C "$VERIFY_ROOT" status --short)"
+  if [[ -n "$publish_status" ]]; then
+    log "Commit publish tree changes"
+    git -C "$VERIFY_ROOT" commit -m "$PUBLIC_GIT_COMMIT_MESSAGE"
+  else
+    log "No publish tree changes to commit"
+  fi
+
+  git -C "$VERIFY_ROOT" remote get-url "$PUBLIC_GIT_REMOTE" >/dev/null 2>&1 \
+    || fail "publish tree remote not found: $PUBLIC_GIT_REMOTE"
+  log "Push publish tree to $PUBLIC_GIT_REMOTE/$PUBLIC_GIT_BRANCH"
+  git -C "$VERIFY_ROOT" push "$PUBLIC_GIT_REMOTE" "HEAD:$PUBLIC_GIT_BRANCH"
+}
+
 [[ -n "$PYTHON_BIN" ]] || fail "missing required command: $PYTHON"
 
 if [[ "$SKIP_CI" != "1" ]]; then
   log "Run source CI check"
-  AGENTHUB_CI_ROOT="$SOURCE_ROOT" "$SOURCE_ROOT/scripts/ci_check.sh"
+  AGENTHUB_CI_ROOT="$SOURCE_ROOT" AGENTHUB_PUBLIC_TREE_SCAN=0 "$SOURCE_ROOT/scripts/ci_check.sh"
 else
   log "Source CI check skipped by AGENTHUB_RELEASE_SKIP_CI=1"
 fi
@@ -103,6 +143,8 @@ AGENTHUB_RELEASE_PROVIDER_HOME="$PROVIDER_HOME" \
 AGENTHUB_RELEASE_REQUIRE_LIVE="${AGENTHUB_RELEASE_REQUIRE_LIVE:-1}" \
 AGENTHUB_PUBLIC_TREE_SCAN="${AGENTHUB_PUBLIC_TREE_SCAN:-0}" \
   "$SOURCE_ROOT/scripts/release_verify.sh"
+
+push_public_git_tree
 
 if [[ "$UPLOAD_ENABLED" == "1" ]]; then
   archive="$(latest_archive)"

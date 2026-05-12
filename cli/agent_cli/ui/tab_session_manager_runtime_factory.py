@@ -201,7 +201,12 @@ def _resume_codex_sidecar_tab_runtime(app: Any, tab_info: Any) -> Any | None:
 def _build_runtime_for_engine(app: Any, tab_id: str, engine: KernelEngine) -> Any | None:
     if engine == "codex_sidecar":
         return _build_codex_sidecar_tab_runtime(app, tab_id)
-    return _build_tab_runtime(app, tab_id)
+    runtime = _build_tab_runtime(app, tab_id)
+    if runtime is not None:
+        return runtime
+    if _is_codex_sidecar_runtime(getattr(app, "runtime", None)):
+        return _build_codex_sidecar_tab_runtime(app, tab_id)
+    return None
 
 
 def _clone_tab_runtime(app: Any, tab_id: str, source_runtime: Any) -> Any | None:

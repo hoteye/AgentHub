@@ -307,3 +307,61 @@ class BuildReleaseScriptTest(unittest.TestCase):
         self.assertEqual(artifact.path, target.resolve(strict=False))
         self.assertEqual(artifact.source, "bundled")
         self.assertEqual(artifact.version, "v-test")
+
+    def test_bundle_codex_sidecar_runtime_root_copies_supporting_resources(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            runtime_root = root / "runtime" / "codex"
+            bundle_root = runtime_root / "linux-x86_64" / "rust-v0.129.0"
+            (bundle_root / "path").mkdir(parents=True)
+            (bundle_root / "codex-resources").mkdir()
+            for relative in ("codex-app-server", "path/rg", "codex-resources/bwrap"):
+                path = bundle_root / relative
+                path.write_text("#!/bin/sh\n", encoding="utf-8")
+                path.chmod(path.stat().st_mode | stat.S_IXUSR)
+            (bundle_root / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "version": "rust-v0.129.0",
+                        "binary": "codex-app-server",
+                        "pathEntries": ["path"],
+                        "resources": {
+                            "path": "path/rg",
+                            "bwrap": "codex-resources/bwrap",
+                        },
+                        "files": {
+                            "appServer": "codex-app-server",
+                            "rg": "path/rg",
+                            "bwrap": "codex-resources/bwrap",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (runtime_root / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "defaultVersion": "rust-v0.129.0",
+                        "platforms": {"linux-x86_64": {"defaultVersion": "rust-v0.129.0"}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            packaged_root = root / "agenthub-cli-1.0-linux-x86_64"
+            packaged_root.mkdir()
+
+            target = MODULE.bundle_codex_sidecar_runtime_root(
+                packaged_root,
+                runtime_root=runtime_root,
+                platform_key="linux-x86_64",
+            )
+
+            assert target is not None
+            target_bundle = target.parent
+            self.assertTrue((target_bundle / "codex-app-server").exists())
+            self.assertTrue((target_bundle / "path" / "rg").exists())
+            self.assertTrue((target_bundle / "codex-resources" / "bwrap").exists())
+            root_manifest = json.loads(
+                (packaged_root / "runtime" / "codex" / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(root_manifest["defaultVersion"], "rust-v0.129.0")

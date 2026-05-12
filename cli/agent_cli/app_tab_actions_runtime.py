@@ -79,14 +79,14 @@ def action_new_tab(app: Any) -> None:
     from cli.agent_cli.runtime_kernels.codex_sidecar import codex_sidecar_artifact_available
     from cli.agent_cli.runtime_kernels.routing import select_new_tab_engine
 
-    tab_id = app._tab_manager.create_tab(
-        engine=select_new_tab_engine(
-            app.runtime,
-            artifact_available_fn=lambda: getattr(app, "_codex_sidecar_kernel", None) is not None
-            or codex_sidecar_artifact_available(),
-        ),
+    engine = select_new_tab_engine(
+        app.runtime,
+        artifact_available_fn=lambda: getattr(app, "_codex_sidecar_kernel", None) is not None
+        or codex_sidecar_artifact_available(),
     )
+    tab_id = app._tab_manager.create_tab(engine=engine)
     if not tab_id:
+        app._write_system_notice(f"Failed to create tab (engine={engine})")
         return
     app._focus_input()
     app._refresh_top_title_bar()

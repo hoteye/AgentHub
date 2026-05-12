@@ -1,5 +1,8 @@
 name: release-executables
 
+env:
+  CODEX_SIDECAR_RELEASE_TAG: rust-v0.129.0
+
 on:
   workflow_dispatch:
   push:
@@ -10,8 +13,11 @@ on:
       - ".github/workflows/release-executables.yml"
       - ".github/workflows/cli-cross-platform.yml"
       - "cli/scripts/build_release.py"
+      - "cli/scripts/build_release_packaging_helpers.py"
       - "cli/scripts/release_artifact_smoke.py"
       - "cli/scripts/check_release_version.py"
+      - "cli/scripts/prepare_codex_sidecar_runtime.py"
+      - "cli/scripts/prepare_codex_sidecar_runtime_*.py"
       - "cli/requirements-build.txt"
       - "cli/tests/test_build_release.py"
       - "cli/tests/test_release_artifact_smoke.py"
@@ -55,8 +61,15 @@ jobs:
         shell: bash
         run: ../scripts/ci_check.sh
 
+      - name: Prepare Codex sidecar runtime
+        run: >
+          python cli/scripts/prepare_codex_sidecar_runtime.py
+          --tag "${{ env.CODEX_SIDECAR_RELEASE_TAG }}"
+          --runtime-root runtime/codex
+          --force
+
       - name: Build portable release
-        run: python cli/scripts/build_release.py --clean
+        run: python cli/scripts/build_release.py --clean --codex-sidecar-runtime-root runtime/codex
 
       - name: Smoke portable release
         run: python cli/scripts/release_artifact_smoke.py

@@ -101,14 +101,39 @@ def handle_known_command(
         include_advanced = any(
             token in {"all", "advanced", "verbose", "--all", "-a"} for token in help_tokens
         )
-        return (
-            slash_command_help_text(
-                plugin_manager=getattr(runtime.tools, "_plugin_manager", None),
-                include_advanced=include_advanced,
-                locale=getattr(runtime, "presentation_locale", None),
-            ),
-            [],
+        text = slash_command_help_text(
+            plugin_manager=getattr(getattr(runtime, "tools", None), "_plugin_manager", None),
+            include_advanced=include_advanced,
+            locale=getattr(runtime, "presentation_locale", None),
         )
+        from cli.agent_cli.app_bindings_runtime import APP_BINDINGS
+
+        _ACTION_LABELS = {
+            "ctrl_c": "Quit",
+            "focused_undo_or_noop": "Undo",
+            "clear_logs": "Clear screen",
+            "toggle_transcript": "Toggle transcript mode",
+            "submit_prompt": "Send prompt",
+            "refresh_state": "Show provider status",
+            "show_tools": "Show tools",
+            "toggle_latest_web_item": "Toggle web details",
+            "paste_prompt": "Paste from clipboard",
+            "new_tab": "New tab",
+            "fork_tab": "Fork current tab",
+            "close_tab": "Close current tab",
+            "next_tab": "Switch to next tab",
+            "prev_tab": "Switch to previous tab",
+        }
+        shortcuts = []
+        for b in APP_BINDINGS:
+            key = b[0] if isinstance(b, tuple) else getattr(b, "key", "")
+            action = b[1] if isinstance(b, tuple) and len(b) > 1 else getattr(b, "action", "")
+            label = _ACTION_LABELS.get(action, action)
+            if key:
+                shortcuts.append(f"  {key} - {label}")
+        if shortcuts:
+            text += "\n\nkeyboard shortcuts:\n" + "\n".join(shortcuts)
+        return (text, [])
     if name == "cd":
         return handle_cd_command(runtime, name=name, arg_text=arg_text)
     if name in {"runtime_status", "status"}:
@@ -197,18 +222,26 @@ def handle_known_command(
             "`/theme` is a TUI-local command. Use it inside the interactive TUI, or start the TUI with `--theme`.",
             [],
         )
-    if runtime._is_interrupt_requested() and name not in {
-        "provider",
-        "providers",
-        "models",
-        "model",
-        "model-route",
-        "model_route",
-        "delegate-model",
-        "delegate_model",
-        "help",
-    }:
-        return runtime._interrupt_tuple()
+    _is_interrupted = getattr(runtime, "_is_interrupt_requested", None)
+    if (
+        callable(_is_interrupted)
+        and _is_interrupted()
+        and name
+        not in {
+            "provider",
+            "providers",
+            "models",
+            "model",
+            "model-route",
+            "model_route",
+            "delegate-model",
+            "delegate_model",
+            "help",
+        }
+    ):
+        _interrupt_fn = getattr(runtime, "_interrupt_tuple", None)
+        if callable(_interrupt_fn):
+            return _interrupt_fn()
     if name == "compact":
         instructions = _decode_raw_text_arg(arg_text)
         result = runtime._compact_history(

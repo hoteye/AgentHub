@@ -89,6 +89,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="",
         help="Optional Codex ref source revision recorded in the runtime manifest.",
     )
+    parser.add_argument(
+        "--codex-sidecar-runtime-root",
+        default="",
+        help=(
+            "Optional prepared Codex runtime root to bundle, for example runtime/codex. "
+            "Copies the current platform/version bundle including codex-app-server, rg, "
+            "bwrap, and manifests."
+        ),
+    )
+    parser.add_argument(
+        "--codex-sidecar-runtime-bundle",
+        default="",
+        help=(
+            "Optional prepared Codex runtime bundle directory to copy directly, for "
+            "example runtime/codex/linux-x86_64/rust-v0.129.0."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -374,6 +391,42 @@ def bundle_codex_sidecar_runtime(
     )
 
 
+def bundle_codex_sidecar_runtime_root(
+    packaged_root: Path,
+    *,
+    runtime_root: str | Path,
+    runtime_version: str = "",
+    platform_key: str | None = None,
+) -> Path | None:
+    return packaging_helpers.bundle_codex_sidecar_runtime_root(
+        packaged_root,
+        runtime_root=runtime_root,
+        runtime_version=runtime_version,
+        platform_key=platform_key,
+        codex_platform_key_func=codex_platform_key,
+        codex_binary_name_func=codex_binary_name,
+        sha256_digest_func=sha256_digest,
+    )
+
+
+def bundle_codex_sidecar_runtime_bundle(
+    packaged_root: Path,
+    *,
+    runtime_bundle: str | Path,
+    runtime_version: str = "",
+    platform_key: str | None = None,
+) -> Path | None:
+    return packaging_helpers.bundle_codex_sidecar_runtime_bundle(
+        packaged_root,
+        runtime_bundle=runtime_bundle,
+        runtime_version=runtime_version,
+        platform_key=platform_key,
+        codex_platform_key_func=codex_platform_key,
+        codex_binary_name_func=codex_binary_name,
+        sha256_digest_func=sha256_digest,
+    )
+
+
 def _runtime_root_manifest(runtime_root: Path) -> dict[str, object]:
     return packaging_helpers._runtime_root_manifest(runtime_root)
 
@@ -418,6 +471,20 @@ def main(argv: list[str] | None = None) -> int:
             codex_sidecar_bin=args.codex_sidecar_bin,
             runtime_version=args.codex_sidecar_version,
             source_revision=args.codex_sidecar_source_revision,
+        )
+        archive = archive_packaged_root(packaged_root, artifact_dir=artifact_dir)
+    elif str(args.codex_sidecar_runtime_bundle or "").strip():
+        bundle_codex_sidecar_runtime_bundle(
+            packaged_root,
+            runtime_bundle=args.codex_sidecar_runtime_bundle,
+            runtime_version=args.codex_sidecar_version,
+        )
+        archive = archive_packaged_root(packaged_root, artifact_dir=artifact_dir)
+    elif str(args.codex_sidecar_runtime_root or "").strip():
+        bundle_codex_sidecar_runtime_root(
+            packaged_root,
+            runtime_root=args.codex_sidecar_runtime_root,
+            runtime_version=args.codex_sidecar_version,
         )
         archive = archive_packaged_root(packaged_root, artifact_dir=artifact_dir)
     print(str(archive))

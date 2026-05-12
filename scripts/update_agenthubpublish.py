@@ -61,6 +61,7 @@ EXCLUDED_RELATIVE_PATHS = {
 }
 PUBLIC_DOC_PATHS = {
     Path("README.md"),
+    Path("CHANGELOG.md"),
     Path("CONTRIBUTING.md"),
     Path("SECURITY.md"),
 }

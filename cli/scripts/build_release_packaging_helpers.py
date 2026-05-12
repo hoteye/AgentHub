@@ -9,7 +9,7 @@ import subprocess
 import tarfile
 import time
 import zipfile
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 
@@ -204,6 +204,175 @@ def bundle_codex_sidecar_runtime(
         encoding="utf-8",
     )
     return target
+
+
+def bundle_codex_sidecar_runtime_root(
+    packaged_root: Path,
+    *,
+    runtime_root: str | Path,
+    runtime_version: str = "",
+    platform_key: str | None = None,
+    codex_platform_key_func: Callable[[], str] = codex_platform_key,
+    codex_binary_name_func: Callable[[str], str] = codex_binary_name,
+    sha256_digest_func: Callable[[Path], str] = sha256_digest,
+) -> Path | None:
+    source_runtime_root = Path(runtime_root).expanduser()
+    if not str(runtime_root or "").strip():
+        return None
+    if not source_runtime_root.is_dir():
+        raise FileNotFoundError(f"codex sidecar runtime root not found: {source_runtime_root}")
+    resolved_platform = platform_key or codex_platform_key_func()
+    version_label = _resolved_runtime_version(
+        source_runtime_root,
+        platform_key=resolved_platform,
+        requested_version=runtime_version,
+    )
+    source_bundle_root = source_runtime_root / resolved_platform / version_label
+    return bundle_codex_sidecar_runtime_bundle(
+        packaged_root,
+        runtime_bundle=source_bundle_root,
+        runtime_version=version_label,
+        platform_key=resolved_platform,
+        codex_binary_name_func=codex_binary_name_func,
+        sha256_digest_func=sha256_digest_func,
+    )
+
+
+def bundle_codex_sidecar_runtime_bundle(
+    packaged_root: Path,
+    *,
+    runtime_bundle: str | Path,
+    runtime_version: str = "",
+    platform_key: str | None = None,
+    codex_platform_key_func: Callable[[], str] = codex_platform_key,
+    codex_binary_name_func: Callable[[str], str] = codex_binary_name,
+    sha256_digest_func: Callable[[Path], str] = sha256_digest,
+) -> Path | None:
+    source_bundle_root = Path(runtime_bundle).expanduser()
+    if not str(runtime_bundle or "").strip():
+        return None
+    if not source_bundle_root.is_dir():
+        raise FileNotFoundError(f"codex sidecar runtime bundle not found: {source_bundle_root}")
+    resolved_platform = platform_key or codex_platform_key_func()
+    manifest = _read_json(source_bundle_root / "manifest.json")
+    version_label = _safe_path_label(
+        str(runtime_version or "").strip()
+        or _manifest_version(manifest)
+        or source_bundle_root.name
+        or "current"
+    )
+    binary_name = codex_binary_name_func(resolved_platform)
+    source_binary = source_bundle_root / binary_name
+    if not source_binary.is_file():
+        raise FileNotFoundError(
+            f"codex sidecar binary not found in runtime bundle: {source_binary}"
+        )
+
+    runtime_root = packaged_root / "runtime" / "codex"
+    target_bundle_root = runtime_root / resolved_platform / version_label
+    if target_bundle_root.exists():
+        shutil.rmtree(target_bundle_root)
+    target_bundle_root.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source_bundle_root, target_bundle_root)
+
+    target = target_bundle_root / binary_name
+    if os.name != "nt":
+        for executable in _runtime_executable_paths(target_bundle_root, manifest, binary_name):
+            if executable.exists():
+                executable.chmod(executable.stat().st_mode | 0o755)
+    digest = sha256_digest_func(target)
+
+    root_manifest = _runtime_root_manifest(runtime_root)
+    root_manifest.setdefault("name", "agenthub-codex-sidecar-runtimes")
+    root_manifest["defaultVersion"] = version_label
+    platforms = root_manifest.setdefault("platforms", {})
+    if not isinstance(platforms, dict):
+        platforms = {}
+        root_manifest["platforms"] = platforms
+    platforms[resolved_platform] = {
+        "defaultVersion": version_label,
+        "binary": str((Path(resolved_platform) / version_label / binary_name).as_posix()),
+        "manifest": str((Path(resolved_platform) / version_label / "manifest.json").as_posix()),
+        "sha256": digest,
+    }
+    (runtime_root / "manifest.json").write_text(
+        json.dumps(root_manifest, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return target
+
+
+def _resolved_runtime_version(
+    runtime_root: Path,
+    *,
+    platform_key: str,
+    requested_version: str,
+) -> str:
+    requested = str(requested_version or "").strip()
+    if requested and requested != "current":
+        return _safe_path_label(requested)
+    manifest = _read_json(runtime_root / "manifest.json")
+    platforms = manifest.get("platforms") if isinstance(manifest, Mapping) else None
+    if isinstance(platforms, Mapping):
+        platform_entry = platforms.get(platform_key)
+        if isinstance(platform_entry, Mapping):
+            version = str(platform_entry.get("defaultVersion") or "").strip()
+            if version:
+                return _safe_path_label(version)
+    if isinstance(manifest, Mapping):
+        version = str(manifest.get("defaultVersion") or "").strip()
+        if version:
+            return _safe_path_label(version)
+    return _safe_path_label(requested or "current")
+
+
+def _read_json(path: Path) -> dict[str, object]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _manifest_version(manifest: Mapping[str, object]) -> str:
+    for key in ("version", "sourceTag", "codexVersion"):
+        value = str(manifest.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _runtime_executable_paths(
+    bundle_root: Path,
+    manifest: Mapping[str, object],
+    binary_name: str,
+) -> list[Path]:
+    paths = [bundle_root / binary_name]
+    files = manifest.get("files")
+    if isinstance(files, Mapping):
+        for key in ("appServer", "rg", "bwrap"):
+            value = str(files.get(key) or "").strip()
+            if value:
+                paths.append(bundle_root / value)
+    resources = manifest.get("resources")
+    if isinstance(resources, Mapping):
+        for key in ("path", "bwrap"):
+            value = str(resources.get(key) or "").strip()
+            if value:
+                paths.append(bundle_root / value)
+    return _unique_paths(paths)
+
+
+def _unique_paths(paths: list[Path]) -> list[Path]:
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for path in paths:
+        marker = str(path)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        unique.append(path)
+    return unique
 
 
 def _runtime_root_manifest(runtime_root: Path) -> dict[str, object]:

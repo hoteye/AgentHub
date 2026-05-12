@@ -13,6 +13,11 @@ KEEP_TMP="${AGENTHUB_RELEASE_KEEP_TMP:-0}"
 SKIP_LIVE="${AGENTHUB_RELEASE_SKIP_LIVE:-0}"
 REQUIRE_LIVE="${AGENTHUB_RELEASE_REQUIRE_LIVE:-0}"
 PROVIDER_HOME="${AGENTHUB_RELEASE_PROVIDER_HOME:-}"
+CODEX_SIDECAR_BIN="${AGENTHUB_RELEASE_CODEX_SIDECAR_BIN:-}"
+CODEX_SIDECAR_RUNTIME_ROOT="${AGENTHUB_RELEASE_CODEX_SIDECAR_RUNTIME_ROOT:-}"
+CODEX_SIDECAR_RUNTIME_BUNDLE="${AGENTHUB_RELEASE_CODEX_SIDECAR_RUNTIME_BUNDLE:-}"
+CODEX_SIDECAR_VERSION="${AGENTHUB_RELEASE_CODEX_SIDECAR_VERSION:-}"
+CODEX_SIDECAR_SOURCE_REVISION="${AGENTHUB_RELEASE_CODEX_SIDECAR_SOURCE_REVISION:-}"
 
 export PYTHONUTF8="${PYTHONUTF8:-1}"
 export PYTHONIOENCODING="${PYTHONIOENCODING:-utf-8}"
@@ -201,7 +206,23 @@ trap cleanup EXIT
 mkdir -p "$ARTIFACT_DIR"
 
 log "Build release artifact"
-build_output="$("$PYTHON_BIN" cli/scripts/build_release.py --clean --mode "$MODE" --artifact-dir "$ARTIFACT_DIR")"
+build_args=(cli/scripts/build_release.py --clean --mode "$MODE" --artifact-dir "$ARTIFACT_DIR")
+if [[ -n "$CODEX_SIDECAR_BIN" ]]; then
+  build_args+=(--codex-sidecar-bin "$CODEX_SIDECAR_BIN")
+fi
+if [[ -n "$CODEX_SIDECAR_RUNTIME_ROOT" ]]; then
+  build_args+=(--codex-sidecar-runtime-root "$CODEX_SIDECAR_RUNTIME_ROOT")
+fi
+if [[ -n "$CODEX_SIDECAR_RUNTIME_BUNDLE" ]]; then
+  build_args+=(--codex-sidecar-runtime-bundle "$CODEX_SIDECAR_RUNTIME_BUNDLE")
+fi
+if [[ -n "$CODEX_SIDECAR_VERSION" ]]; then
+  build_args+=(--codex-sidecar-version "$CODEX_SIDECAR_VERSION")
+fi
+if [[ -n "$CODEX_SIDECAR_SOURCE_REVISION" ]]; then
+  build_args+=(--codex-sidecar-source-revision "$CODEX_SIDECAR_SOURCE_REVISION")
+fi
+build_output="$("$PYTHON_BIN" "${build_args[@]}")"
 printf '%s\n' "$build_output"
 ARCHIVE="$(printf '%s\n' "$build_output" | tail -n 1)"
 [[ -f "$ARCHIVE" ]] || fail "build did not produce archive: $ARCHIVE"
@@ -250,14 +271,15 @@ run_tui_probe \
   "$VERIFY_ROOT/empty-tui.raw"
 [[ ! -e "$BUNDLE_ROOT/.config" ]] || fail "release bundle wrote .config into install directory"
 
-if [[ -z "$PROVIDER_HOME" || ! -f "$PROVIDER_HOME/config.toml" || ! -f "$PROVIDER_HOME/auth.json" ]]; then
-  if [[ "$REQUIRE_LIVE" == "1" ]]; then
-    fail "live provider checks required but AGENTHUB_RELEASE_PROVIDER_HOME is missing config.toml/auth.json"
-  fi
-  log "Live provider checks skipped; set AGENTHUB_RELEASE_PROVIDER_HOME to enable them"
+if [[ "$REQUIRE_LIVE" != "1" ]]; then
+  log "Live provider checks skipped by AGENTHUB_RELEASE_REQUIRE_LIVE=$REQUIRE_LIVE"
   log "Release verify ok"
   printf 'artifact=%s\n' "$ARCHIVE"
   exit 0
+fi
+
+if [[ -z "$PROVIDER_HOME" || ! -f "$PROVIDER_HOME/config.toml" || ! -f "$PROVIDER_HOME/auth.json" ]]; then
+  fail "live provider checks required but AGENTHUB_RELEASE_PROVIDER_HOME is missing config.toml/auth.json"
 fi
 
 if [[ "$SKIP_LIVE" == "1" ]]; then
