@@ -68,6 +68,7 @@ def test_export_excludes_local_runtime_state(tmp_path: Path) -> None:
 def test_export_excludes_internal_governance_workflow(tmp_path: Path) -> None:
     source = tmp_path / "source"
     _touch(source / "cli" / "agent_cli" / "__init__.py")
+    _touch(source / ".github" / "workflows" / "cli-cross-platform.yml")
     _touch(source / ".github" / "workflows" / "governance-guards.yml")
     _touch(source / ".github" / "workflows" / "release-executables.yml")
 
@@ -76,4 +77,5 @@ def test_export_excludes_internal_governance_workflow(tmp_path: Path) -> None:
     }
 
     assert ".github/workflows/release-executables.yml" in copied
+    assert ".github/workflows/cli-cross-platform.yml" not in copied
     assert ".github/workflows/governance-guards.yml" not in copied
