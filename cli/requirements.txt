@@ -1,0 +1,7 @@
+textual>=0.61,<1
+rich>=13.7,<15
+# Verified provider SDK baselines as of 2026-04-17. Raise these minimums only after rerunning provider regressions on the new SDK versions.
+openai>=2.32,<3
+anthropic>=0.96,<1
+defusedxml>=0.7,<1
+huey>=2.5,<3

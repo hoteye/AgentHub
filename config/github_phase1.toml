@@ -1,0 +1,5 @@
+[workflow_dispatch]
+default_allowlisted_workflow_ids = ["agenthub-validation.yml"]
+
+[workflow_dispatch.repo_allowlisted_workflow_ids]
+"hoteye/simulate-app" = ["agenthub-validation.yml"]

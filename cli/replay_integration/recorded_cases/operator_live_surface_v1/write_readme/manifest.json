@@ -1,0 +1,44 @@
+{
+  "case_id": "write_readme",
+  "coverage_tags": [
+    "operator_live_surface",
+    "write",
+    "benchmark_case_pack"
+  ],
+  "drift_policy": "warn",
+  "environment_snapshot": {
+    "current_date": "2026-04-19",
+    "cwd": "/tmp/agenthub_operator_live/write_readme",
+    "timezone": "CST"
+  },
+  "format_version": "v1",
+  "name": "operator-live-write_readme",
+  "notes": "Recorded operator/live write benchmark case.",
+  "parity_targets": [
+    "behavioral_parity_required",
+    "protocol_path_parity_required"
+  ],
+  "session": {
+    "current_date": "2026-04-19",
+    "cwd": "/tmp/agenthub_operator_live/write_readme",
+    "git_commit": "",
+    "model": "claude-sonnet-4-6",
+    "prompt_cache_key": "",
+    "provider": "anthropic",
+    "recorded_at": "",
+    "thread_id": "",
+    "timezone": "CST",
+    "transport_kind": "anthropic_messages"
+  },
+  "workspace_snapshot": {
+    "cwd": "/tmp/agenthub_operator_live/write_readme",
+    "docs": [],
+    "instruction_sources": [],
+    "instructions_digest": "afce207283852f76471d1b2ee1f57311ad8bf126",
+    "rule_count": 0,
+    "rule_paths": [],
+    "skills": [],
+    "trust_level": "trusted",
+    "workspace_digest": "849737eb6ef2f82eb4a922bd76b0138f7b25a13fd310a48d7de7c9652f6fb686"
+  }
+}

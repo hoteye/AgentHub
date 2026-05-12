@@ -1,0 +1,44 @@
+{
+  "case_id": "edit_settings",
+  "coverage_tags": [
+    "operator_live_surface",
+    "edit",
+    "benchmark_case_pack"
+  ],
+  "drift_policy": "warn",
+  "environment_snapshot": {
+    "current_date": "2026-04-19",
+    "cwd": "/tmp/agenthub_operator_live/edit_settings",
+    "timezone": "CST"
+  },
+  "format_version": "v1",
+  "name": "operator-live-edit_settings",
+  "notes": "Recorded operator/live edit benchmark case.",
+  "parity_targets": [
+    "behavioral_parity_required",
+    "protocol_path_parity_required"
+  ],
+  "session": {
+    "current_date": "2026-04-19",
+    "cwd": "/tmp/agenthub_operator_live/edit_settings",
+    "git_commit": "",
+    "model": "claude-sonnet-4-6",
+    "prompt_cache_key": "",
+    "provider": "anthropic",
+    "recorded_at": "",
+    "thread_id": "",
+    "timezone": "CST",
+    "transport_kind": "anthropic_messages"
+  },
+  "workspace_snapshot": {
+    "cwd": "/tmp/agenthub_operator_live/edit_settings",
+    "docs": [],
+    "instruction_sources": [],
+    "instructions_digest": "afce207283852f76471d1b2ee1f57311ad8bf126",
+    "rule_count": 0,
+    "rule_paths": [],
+    "skills": [],
+    "trust_level": "trusted",
+    "workspace_digest": "cd0c28ac9d5806d5b3a17c65b5d2d7e4cd5e1ae40b49d9106859246d2ec27396"
+  }
+}

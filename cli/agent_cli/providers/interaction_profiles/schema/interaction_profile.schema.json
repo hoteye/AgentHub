@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InteractionProfileSpec",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile",
+    "display_name",
+    "base_prompt_profile",
+    "tool_surface_profile",
+    "context_prelude_policy",
+    "tool_result_projection_policy",
+    "continuation_policy",
+    "turn_protocol_policy",
+    "required_capabilities",
+    "tool_families",
+    "fallback_profile"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "base_prompt_profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tool_surface_profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "context_prelude_policy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tool_result_projection_policy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "continuation_policy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "turn_protocol_policy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "required_capabilities": {
+      "type": "object"
+    },
+    "optional_capabilities": {
+      "type": "object"
+    },
+    "tool_families": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "exposure",
+          "projection"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "exposure": {
+            "type": "string",
+            "minLength": 1
+          },
+          "projection": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fallback_backend": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "fallback_profile": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Fallback interaction profile name. Use \"none\" for a terminal profile with no further fallback."
+    },
+    "selection_hints": {
+      "type": "object"
+    },
+    "plugin_exposure_policy": {
+      "type": "object"
+    }
+  }
+}

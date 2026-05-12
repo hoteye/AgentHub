@@ -1,0 +1,5 @@
+# Plugin-specific dependencies only.
+# Do not repeat packages already listed in the root requirements files.
+#
+# Example:
+# some-plugin-lib>=1.2,<2

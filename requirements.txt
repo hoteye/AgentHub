@@ -1,0 +1,9 @@
+cryptography>=43,<46
+defusedxml>=0.7,<1
+docx2txt>=0.8
+openpyxl>=3.1,<4
+playwright>=1.58,<2
+pypdf>=5,<6
+python-docx>=1.1,<2
+websockets>=16,<17
+xlrd>=2,<3

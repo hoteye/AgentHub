@@ -1,0 +1,29 @@
+enabled = true
+mode = "live"
+evaluate_enabled = false
+default_profile = "openclaw"
+executable_path = ""
+headless = true
+launch_timeout_ms = 20000
+navigation_timeout_ms = 20000
+allow_hosts = []
+block_hosts = []
+allow_private_network = false
+
+[existing_session]
+discovery_bases = []
+discovery_path = "/json/version"
+
+[proxy]
+enabled = true
+transport = "local"
+base_url = ""
+auth_token = ""
+auth_password = ""
+inject_loopback_auth = true
+allow_profiles = []
+max_file_bytes = 10485760
+
+[profiles.openclaw]
+color = "#FF4500"
+driver = "live"

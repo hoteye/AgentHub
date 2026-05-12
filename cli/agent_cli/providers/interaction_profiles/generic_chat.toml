@@ -1,0 +1,29 @@
+schema_version = 1
+profile = "generic_chat"
+display_name = "Generic Chat"
+base_prompt_profile = "generic_chat"
+tool_surface_profile = "generic_chat"
+context_prelude_policy = "generic_history_replay"
+tool_result_projection_policy = "generic_function_tool_result"
+continuation_policy = "client_managed_history"
+turn_protocol_policy = "generic_chat_turn"
+fallback_profile = "none"
+
+[required_capabilities]
+tool_calling = true
+
+[optional_capabilities]
+native_web_search_runtime = false
+native_web_search_mixed_tools = false
+
+[tool_families.exec_command]
+exposure = "enabled"
+projection = "canonical"
+
+[tool_families.web_search]
+exposure = "enabled"
+projection = "function"
+
+[tool_families.view_image]
+exposure = "enabled"
+projection = "canonical"

@@ -1,0 +1,140 @@
+name: release-gui-desktop
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "gui-v*"
+  pull_request:
+    paths:
+      - ".github/workflows/release-gui-desktop.yml"
+      - "scripts/build_gui_desktop_bundle.py"
+      - "scripts/build_gui_desktop_bundle.sh"
+      - "gui/**"
+      - "cli/scripts/start_gui_bridge.sh"
+      - "cli/scripts/start_gui_bridge.ps1"
+      - "cli/tests/test_build_gui_desktop_bundle.py"
+      - "docs/GUI_DESKTOP_RELEASE.md"
+      - "docs/GUI_DESKTOP_INSTALL_AND_RUN.md"
+      - "docs/AGENTHUB_RELEASE_SUPPORT_POLICY.md"
+      - "CHANGELOG.md"
+
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: "utf-8"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          cache-dependency-path: gui/pnpm-lock.yaml
+
+      - name: Install GUI dependencies
+        working-directory: gui
+        run: pnpm install --frozen-lockfile
+
+      - name: Resolve GUI release version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && "${GITHUB_REF_NAME}" == gui-v* ]]; then
+            echo "GUI_RELEASE_VERSION=${GITHUB_REF_NAME#gui-v}" >> "$GITHUB_ENV"
+          else
+            echo "GUI_RELEASE_VERSION=dev-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run GUI bundle script tests
+        run: python -m pytest -q cli/tests/test_build_gui_desktop_bundle.py
+
+      - name: Build GUI desktop bundle
+        run: >
+          python scripts/build_gui_desktop_bundle.py
+          --clean
+          --version "${{ env.GUI_RELEASE_VERSION }}"
+          --obfuscation-level minimal
+
+      - name: Upload GUI desktop bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-desktop-release-${{ matrix.os }}
+          path: artifacts/gui-desktop-releases/*
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/gui-v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download GUI desktop bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: gui-desktop-release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Resolve GUI release version
+        shell: bash
+        run: echo "GUI_RELEASE_VERSION=${GITHUB_REF_NAME#gui-v}" >> "$GITHUB_ENV"
+
+      - name: Generate sha256 checksums
+        run: |
+          find release-assets -maxdepth 1 -type f ! -name '*.sha256' -print0 \
+            | while IFS= read -r -d '' file; do
+                sha256sum "$file" > "$file.sha256"
+              done
+
+      - name: Write release notes
+        shell: bash
+        run: |
+          cat > /tmp/agenthub_gui_release_notes.md <<EOF
+          ## AgentHub GUI desktop portable bundles
+
+          Release version: ${GUI_RELEASE_VERSION}
+
+          Included assets:
+          - Linux, macOS, and Windows portable desktop bundles
+          - Minimal Python runtime obfuscation for selected host/runtime trees
+          - Per-artifact \`.sha256\` checksum files
+
+          Current support boundary:
+          - Current distribution posture is closed trial before any open-source release decision
+          - The download flow is cross-platform, but this is still a portable bundle rather than a native installer
+          - Python 3 is still required on the target machine for the local GUI bridge
+          - Linux hosts may still need Electron system libraries
+          - Plugin source files are still present because current plugin loading depends on file-path-based manifest resolution
+
+          Quick start:
+          - Linux/macOS: extract the matching \`.tar.gz\` archive and run \`./start_gui_desktop.sh\`
+          - Windows: extract the matching \`.zip\` archive and run \`start_gui_desktop.cmd\` or \`./start_gui_desktop.ps1\`
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: /tmp/agenthub_gui_release_notes.md
+          files: |
+            release-assets/*

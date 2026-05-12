@@ -1,0 +1,31 @@
+schema_version = 1
+profile = "claude_code"
+display_name = "Claude Code"
+base_prompt_profile = "claude_code"
+tool_surface_profile = "claude_code"
+context_prelude_policy = "anthropic_turn_context"
+tool_result_projection_policy = "claude_like"
+continuation_policy = "anthropic_native_preferred"
+turn_protocol_policy = "anthropic_messages_turn_items"
+fallback_profile = "generic_chat"
+
+[required_capabilities]
+tool_calling = true
+reasoning = true
+
+[optional_capabilities]
+native_web_search_runtime = true
+native_web_search_mixed_tools = false
+
+[tool_families.exec_command]
+exposure = "enabled"
+projection = "claude_shell_split"
+
+[tool_families.web_search]
+exposure = "enabled"
+projection = "native_if_available"
+fallback_backend = "local"
+
+[tool_families.apply_patch]
+exposure = "enabled"
+projection = "capability_driven"

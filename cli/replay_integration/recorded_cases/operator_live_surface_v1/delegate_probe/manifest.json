@@ -1,0 +1,44 @@
+{
+  "case_id": "delegate_probe",
+  "coverage_tags": [
+    "operator_live_surface",
+    "agent_delegation",
+    "benchmark_case_pack"
+  ],
+  "drift_policy": "warn",
+  "environment_snapshot": {
+    "current_date": "2026-04-19",
+    "cwd": "/tmp/agenthub_operator_live/delegate_probe",
+    "timezone": "CST"
+  },
+  "format_version": "v1",
+  "name": "operator-live-delegate_probe",
+  "notes": "Recorded operator/live agent_delegation benchmark case.",
+  "parity_targets": [
+    "behavioral_parity_required",
+    "protocol_path_parity_required"
+  ],
+  "session": {
+    "current_date": "2026-04-19",
+    "cwd": "/tmp/agenthub_operator_live/delegate_probe",
+    "git_commit": "",
+    "model": "claude-sonnet-4-6",
+    "prompt_cache_key": "",
+    "provider": "anthropic",
+    "recorded_at": "",
+    "thread_id": "",
+    "timezone": "CST",
+    "transport_kind": "anthropic_messages"
+  },
+  "workspace_snapshot": {
+    "cwd": "/tmp/agenthub_operator_live/delegate_probe",
+    "docs": [],
+    "instruction_sources": [],
+    "instructions_digest": "afce207283852f76471d1b2ee1f57311ad8bf126",
+    "rule_count": 0,
+    "rule_paths": [],
+    "skills": [],
+    "trust_level": "trusted",
+    "workspace_digest": "dba161812902078d78e94c76a6a60491fadf020069ea1a06a2a2ef8152261a96"
+  }
+}

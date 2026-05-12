@@ -1,0 +1,5 @@
+[search]
+allowed_domains = []
+denied_domains = []
+preferred_domains = []
+official_domains = []

@@ -1,0 +1,157 @@
+[
+  {
+    "case_id": "upgrade_abnormal_handling",
+    "case_name": "投产升级异常处置与双人复核",
+    "finding": "部分外包人员在投产升级中超出审批范围执行高危操作，且未按异常处置流程处理，复核人未提出异议。",
+    "question": "针对外包人员在投产升级中超范围执行高危操作且未按异常处置流程处理的问题，请给出制度依据、问题定性和责任环节。",
+    "live_query": "投产升级 双人复核 异常处置",
+    "expected_policy_titles": [
+      "中国邮政储蓄银行信息化工程应用系统投产升级操作规程",
+      "中国邮政储蓄银行信息化工程应用系统投产升级异常处置操作规程"
+    ],
+    "oracle_paths": [
+      "/home/lyc/project/RACS/data/psbc/markdown/中国邮政储蓄银行信息化工程应用系统投产升级操作规程（2025年修订版）.md",
+      "/home/lyc/project/RACS/data/psbc/markdown/中国邮政储蓄银行信息化工程应用系统投产升级异常处置操作规程（2024年修订版）.md"
+    ],
+    "expected_basis_keywords": [
+      "严格按照投产升级步骤进行操作",
+      "异常情况",
+      "投产升级操作人员暂停投产升级操作",
+      "建设单位",
+      "业务部门",
+      "运营数据中心"
+    ],
+    "expected_qualitative_keywords": [
+      "异常处置",
+      "双人复核",
+      "超范围",
+      "未按审批"
+    ],
+    "expected_responsibility_keywords": [
+      "投产升级操作人员",
+      "建设单位",
+      "业务部门",
+      "运营数据中心"
+    ]
+  },
+  {
+    "case_id": "outsourcing_reporting_gap",
+    "case_name": "外包活动和驻场人员统计报送遗漏",
+    "finding": "运营数据中心未将部分外包活动及驻场外包人员信息按要求上报至金融科技部。",
+    "question": "针对外包活动和驻场外包人员未按季度报送的问题，请给出制度依据、问题定性和责任环节。",
+    "live_query": "外包活动清单 驻场外包人员信息统计表",
+    "expected_policy_titles": [
+      "中国邮政储蓄银行信息科技外包管理办法"
+    ],
+    "oracle_paths": [
+      "/home/lyc/project/RACS/data/psbc/markdown/2025信息科技外包管理专项审计-总行-鲁荔-底稿01-确认单01（运营数据中心）0716-综合管理处-反馈.md"
+    ],
+    "expected_basis_keywords": [
+      "总行外包执行部门",
+      "各一级分行",
+      "每季度末月25日前",
+      "信息科技外包活动清单",
+      "信息科技驻场外包人员信息统计表",
+      "金融科技部"
+    ],
+    "expected_qualitative_keywords": [
+      "统计报送",
+      "外包活动",
+      "驻场外包人员",
+      "未上报"
+    ],
+    "expected_responsibility_keywords": [
+      "总行外包执行部门",
+      "金融科技部",
+      "运营数据中心"
+    ]
+  },
+  {
+    "case_id": "outsourcing_due_diligence_gap",
+    "case_name": "外包服务提供商尽职调查不到位",
+    "finding": "在拟使用外包服务提供商前，未严格按照制度规定开展全面、深入的尽职调查，导致风险识别不足。",
+    "question": "针对外包服务提供商尽职调查不到位的问题，请给出制度依据、问题定性和责任环节。",
+    "live_query": "外包服务提供商 尽职调查",
+    "expected_policy_titles": [
+      "中国邮政储蓄银行信息科技外包管理办法"
+    ],
+    "oracle_paths": [
+      "/home/lyc/project/RACS/data/psbc/markdown/2025信息科技外包管理专项审计-总行-段凯佳-底稿01-确认单04（运营数据中心）-7.27-综合管理处、应用条线-反馈.md"
+    ],
+    "expected_basis_keywords": [
+      "签订外包合同前",
+      "外包执行部门",
+      "备选服务提供商",
+      "尽职调查",
+      "一年内有效"
+    ],
+    "expected_qualitative_keywords": [
+      "尽职调查不到位",
+      "风险识别",
+      "合规性",
+      "合作风险"
+    ],
+    "expected_responsibility_keywords": [
+      "外包执行部门"
+    ]
+  },
+  {
+    "case_id": "outsourcing_least_privilege",
+    "case_name": "外包人员权限与职责不匹配",
+    "finding": "部分驻场外包人员所拥有的权限与其工作职责不相匹配，存在超出工作职责的过度授权。",
+    "question": "针对外包人员权限与职责不匹配的问题，请给出制度依据、问题定性和责任环节。",
+    "live_query": "最小授权原则 外包人员 权限",
+    "expected_policy_titles": [
+      "中国邮政储蓄银行信息系统用户账号和权限管理实施细则",
+      "中国邮政储蓄银行运维安全堡垒系统管理规程"
+    ],
+    "oracle_paths": [
+      "/home/lyc/project/RACS/data/psbc/markdown/中国邮政储蓄银行信息系统用户账号和权限管理实施细则（2024年修订版）.md",
+      "/home/lyc/project/RACS/data/psbc/markdown/中国邮政储蓄银行运维安全堡垒系统管理规程（2024年修订版）.md"
+    ],
+    "expected_basis_keywords": [
+      "最小授权原则",
+      "根据工作职责",
+      "最小权限",
+      "过度授权"
+    ],
+    "expected_qualitative_keywords": [
+      "最小授权",
+      "权责不一致",
+      "过度授权"
+    ],
+    "expected_responsibility_keywords": [
+      "责任部门",
+      "运营数据中心"
+    ]
+  },
+  {
+    "case_id": "ukey_borrowing",
+    "case_name": "UKey出借和混用",
+    "finding": "存在将本人UKey出借给他人使用的情况，违反账户和访问凭证管理要求。",
+    "question": "针对外包人员出借UKey给他人使用的问题，请给出制度依据、问题定性和责任环节。",
+    "live_query": "UKey 不得借予他人使用",
+    "expected_policy_titles": [
+      "中国邮政储蓄银行运维安全堡垒系统管理规程"
+    ],
+    "oracle_paths": [
+      "/home/lyc/project/RACS/data/psbc/markdown/中国邮政储蓄银行运维安全堡垒系统管理规程（2024年修订版）.md"
+    ],
+    "expected_basis_keywords": [
+      "严禁随意使用他人UKey登录运维安全堡垒系统",
+      "严禁UKey混用、乱用",
+      "责任部门至少每季度组织一次UKey使用情况检查"
+    ],
+    "expected_qualitative_keywords": [
+      "UKey",
+      "借用",
+      "混用",
+      "身份鉴别"
+    ],
+    "expected_responsibility_keywords": [
+      "责任部门",
+      "堡垒用户",
+      "安全管理员"
+    ]
+  }
+]

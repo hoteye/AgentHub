@@ -1,0 +1,34 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  python:
+    name: Python
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r cli/requirements.txt -r requirements-dev.txt
+
+      - name: CLI smoke
+        run: python -m cli.agent_cli --help
+
+      - name: Focused tests
+        run: >
+          python -m pytest -q
+          cli/tests/test_provider_config_boundary_guard.py
+          cli/tests/test_permission_mode_mapping.py
+          cli/tests/test_provider_catalog_paths_runtime.py

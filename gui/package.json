@@ -1,0 +1,26 @@
+{
+  "name": "agenthub-gui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "desktop:prepare": "node ./scripts/ensure-electron.mjs",
+    "desktop:dev": "pnpm desktop:prepare && node ./scripts/run-desktop-dev.mjs",
+    "desktop:start": "pnpm desktop:prepare && pnpm build && pnpm exec electron ./electron/main.mjs",
+    "build": "vite build",
+    "test": "vitest run --config vitest.config.ts",
+    "test:smoke:http": "vitest run --config vitest.smoke.config.ts src/integration/http-bridge-smoke.smoke.ts",
+    "test:smoke:browser-live": "vitest run --config vitest.smoke.config.ts src/integration/browser-live-gui-exam.smoke.ts",
+    "test:smoke:browser-live:demoqa": "vitest run --config vitest.smoke.config.ts src/integration/browser-live-demoqa-register.smoke.ts"
+  },
+  "dependencies": {
+    "lit": "^3.3.2"
+  },
+  "devDependencies": {
+    "electron": "^37.3.1",
+    "jsdom": "^29.0.1",
+    "typescript": "^5.8.3",
+    "vite": "8.0.1",
+    "vitest": "4.1.0"
+  }
+}

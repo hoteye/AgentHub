@@ -1,0 +1,35 @@
+# AgentHub CODEOWNERS
+# Keep this file aligned with OWNERS.md and docs/DIRECTORY_BLUEPRINT.md.
+
+# Global fallback
+* @lyc
+
+# Repository governance and root policy files
+/README.md @lyc
+/OWNERS.md @lyc
+/.github/CODEOWNERS @lyc
+/.github/workflows/ @lyc
+
+# Host and runtime
+/cli/ @lyc
+
+# UI and product/plugin surfaces
+/gui/ @lyc
+/mobile/ @lyc
+/plugins/ @lyc
+
+# Shared and worker execution layers
+/shared/ @lyc
+/workers/ @lyc
+/tools/ @lyc
+/document_tools/ @lyc
+
+# Documentation and execution records
+/docs/ @lyc
+/taskboard/ @lyc
+
+# Root scripts and project configs
+/scripts/ @lyc
+/requirements.txt @lyc
+/requirements-dev.txt @lyc
+/pytest.ini @lyc

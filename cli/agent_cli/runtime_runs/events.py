@@ -1,0 +1,6 @@
+RUN_STARTED_EVENT = "run.started"
+RUN_UPDATED_EVENT = "run.updated"
+RUN_COMPLETED_EVENT = "run.completed"
+RUN_FAILED_EVENT = "run.failed"
+RUN_CANCELLED_EVENT = "run.cancelled"
+RUN_TIMED_OUT_EVENT = "run.timed_out"

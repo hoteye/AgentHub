@@ -1,0 +1,105 @@
+{
+  "rules": [
+    {
+      "name": "runtime-core",
+      "prefixes": [
+        "cli/agent_cli/main.py",
+        "cli/agent_cli/runtime.py",
+        "cli/agent_cli/runtime_core/",
+        "cli/agent_cli/runtime_services/",
+        "cli/agent_cli/core/"
+      ],
+      "commands": [
+        "python -m pytest -q tests/test_runtime_core_modules.py",
+        "python -m pytest -q tests/test_turn_engine_alignment.py"
+      ]
+    },
+    {
+      "name": "ui",
+      "prefixes": [
+        "cli/agent_cli/ui/"
+      ],
+      "commands": [
+        "python -m pytest -q tests/test_ui_slash_controller.py tests/test_ui_operator_status.py",
+        "python -m pytest -q tests/test_app_ui_smoke.py -k 'status_line or slash or transcript'"
+      ]
+    },
+    {
+      "name": "background-tasks",
+      "prefixes": [
+        "cli/agent_cli/background_tasks/"
+      ],
+      "commands": [
+        "python -m pytest -q tests/test_background_tasks_tasks.py tests/test_background_task_running_snapshot.py tests/test_background_tasks_adapter.py"
+      ]
+    },
+    {
+      "name": "gateway",
+      "prefixes": [
+        "cli/agent_cli/gateway_server/",
+        "cli/agent_cli/gateway_api/"
+      ],
+      "commands": [
+        "python -m pytest -q tests/test_gateway_dispatcher.py tests/test_gateway_ws.py"
+      ]
+    },
+    {
+      "name": "providers",
+      "prefixes": [
+        "cli/agent_cli/providers/",
+        "cli/agent_cli/provider.py",
+        "cli/agent_cli/provider_catalog_runtime.py"
+      ],
+      "commands": [
+        "python -m pytest -q tests/test_provider_tool_specs_shared.py tests/test_provider_status.py"
+      ]
+    },
+    {
+      "name": "unified-tool-layer",
+      "prefixes": [
+        "cli/scripts/snapshot_unified_tool_layer.py",
+        "cli/scripts/probe_native_web_search_multi_provider.py",
+        "cli/agent_cli/providers/tool_specs",
+        "cli/agent_cli/providers/builtin_provider_tool_specs",
+        "cli/agent_cli/providers/responses_tool_specs",
+        "cli/agent_cli/providers/shared/tool_specs"
+      ],
+      "commands": [
+        "python -m pytest -q tests/test_unified_tool_layer_snapshot_script.py tests/test_tools_core_web_search_capability_resolver.py"
+      ]
+    },
+    {
+      "name": "history-models",
+      "prefixes": [
+        "cli/agent_cli/models.py",
+        "cli/agent_cli/thread_store",
+        "cli/agent_cli/thread_store_replay.py"
+      ],
+      "commands": [
+        "python -m pytest -q tests/test_turn_items_alignment.py tests/test_rollout_reconstruction_alignment.py",
+        "python -m pytest -q tests/test_thread_persistence.py -k 'resume_thread or rollout or turn_context'"
+      ]
+    },
+    {
+      "name": "governance-gate",
+      "prefixes": [
+        "cli/scripts/changed_files_test_gate.py",
+        "cli/tests/test_changed_files",
+        "scripts/governance/change_test_gate_rules.yaml",
+        ".github/workflows/cli-cross-platform.yml",
+        ".github/workflows/release-executables.yml",
+        ".github/workflows/governance-guards.yml",
+        "docs/AGENTHUB_CHANGE_TEST_GATE_POLICY.md",
+        "docs/TESTING_LAYOUT_RULES.md",
+        "docs/DEPENDENCY_MANAGEMENT.md",
+        "pyproject.toml",
+        ".pre-commit-config.yaml",
+        ".editorconfig",
+        "requirements-dev.txt"
+      ],
+      "commands": [
+        "python -m pytest -q tests/test_changed_files_test_gate.py"
+      ]
+    }
+  ]
+}

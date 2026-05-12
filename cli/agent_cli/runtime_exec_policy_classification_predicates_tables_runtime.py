@@ -1,0 +1,161 @@
+from __future__ import annotations
+
+"""Command-classification lookup tables for exec-policy predicates.
+
+These constant sets categorise well-known programs by safety tier so that the
+predicate helpers can classify shell-command segments without hard-coding the
+lists inline.
+"""
+
+_SAFE_READ_PROGRAMS = {
+    "cat",
+    "find",
+    "git",
+    "grep",
+    "head",
+    "id",
+    "ls",
+    "pwd",
+    "readlink",
+    "realpath",
+    "rg",
+    "sed",
+    "stat",
+    "tail",
+    "uname",
+    "wc",
+    "which",
+}
+_SAFE_GIT_SUBCOMMANDS = {
+    "diff",
+    "grep",
+    "log",
+    "ls-files",
+    "rev-parse",
+    "show",
+    "status",
+}
+_DANGEROUS_PROGRAMS = {
+    "dd",
+    "fdisk",
+    "format",
+    "halt",
+    "init",
+    "kill",
+    "killall",
+    "mkfs",
+    "parted",
+    "passwd",
+    "pkill",
+    "poweroff",
+    "reboot",
+    "rm",
+    "shutdown",
+    "sudo",
+    "su",
+}
+_SHELL_WRAPPERS = {
+    "bash",
+    "cmd",
+    "fish",
+    "ksh",
+    "powershell",
+    "pwsh",
+    "sh",
+    "tcsh",
+    "zsh",
+}
+_WRITE_PROGRAMS = {
+    "chmod",
+    "chown",
+    "cp",
+    "git",
+    "install",
+    "ln",
+    "make",
+    "mkdir",
+    "mktemp",
+    "mv",
+    "npm",
+    "pip",
+    "pnpm",
+    "pytest",
+    "python",
+    "python3",
+    "rmdir",
+    "tee",
+    "touch",
+    "truncate",
+    "uv",
+    "yarn",
+}
+_DANGEROUS_FIND_FLAGS = {
+    "-delete",
+    "-exec",
+    "-execdir",
+    "-fprint",
+    "-fprint0",
+    "-fprintf",
+    "-ok",
+    "-okdir",
+}
+_DANGEROUS_GIT_PREFIXES = {
+    ("clean",),
+    ("push", "--force"),
+    ("push", "-f"),
+    ("reset", "--hard"),
+    ("restore", "--source"),
+}
+_WRITE_GIT_SUBCOMMANDS = {
+    "add",
+    "am",
+    "apply",
+    "checkout",
+    "cherry-pick",
+    "clean",
+    "clone",
+    "commit",
+    "fetch",
+    "merge",
+    "pull",
+    "push",
+    "rebase",
+    "reset",
+    "restore",
+    "revert",
+    "stash",
+    "switch",
+}
+_NETWORK_PROGRAMS = {
+    "curl",
+    "dig",
+    "ftp",
+    "host",
+    "http",
+    "https",
+    "nc",
+    "ncat",
+    "netcat",
+    "nslookup",
+    "ping",
+    "ping6",
+    "scp",
+    "sftp",
+    "ssh",
+    "telnet",
+    "traceroute",
+    "traceroute6",
+    "wget",
+}
+_NETWORK_GIT_SUBCOMMANDS = {
+    "ls-remote",
+}
+_NETWORK_SCHEMES = (
+    "ftp://",
+    "ftps://",
+    "http://",
+    "https://",
+    "ssh://",
+    "ws://",
+    "wss://",
+)

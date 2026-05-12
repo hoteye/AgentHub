@@ -1,0 +1,26 @@
+from __future__ import annotations
+
+from cli.agent_cli.ui import slash_completion_projection_helpers_runtime as _projection_helpers
+from cli.agent_cli.ui import slash_completion_pure_helpers_runtime as _pure_helpers
+from cli.agent_cli.ui import slash_completion_ranking_helpers_runtime as _ranking_helpers
+
+
+_SELECTION_WRITE_SCOPES = _pure_helpers.SELECTION_WRITE_SCOPES
+
+_slash_candidate = _pure_helpers.slash_candidate
+_selection_scope_action_candidates = _pure_helpers.selection_scope_action_candidates
+usage_flag_names = _pure_helpers.usage_flag_names
+current_provider_name = _pure_helpers.current_provider_name
+available_provider_names = _pure_helpers.available_provider_names
+available_model_names = _pure_helpers.available_model_names
+completed_arg_tokens = _pure_helpers.completed_arg_tokens
+
+slash_pending_flag = _projection_helpers.slash_pending_flag
+slash_flag_value_candidates = _projection_helpers.slash_flag_value_candidates
+slash_submit_after_apply = _projection_helpers.slash_submit_after_apply
+slash_positional_candidates = _projection_helpers.slash_positional_candidates
+slash_flag_candidates = _projection_helpers.slash_flag_candidates
+
+complete_local_slash_command = _ranking_helpers.complete_local_slash_command
+match_local_slash_commands = _ranking_helpers.match_local_slash_commands
+slash_argument_matches = _ranking_helpers.slash_argument_matches

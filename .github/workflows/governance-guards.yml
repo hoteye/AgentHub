@@ -1,0 +1,86 @@
+name: governance-guards
+
+on:
+  push:
+    paths:
+      - ".github/workflows/governance-guards.yml"
+      - "scripts/check_owners_coverage.py"
+      - "scripts/check_governance_doc_links.py"
+      - "scripts/check_taskboard_status.py"
+      - "scripts/check_governance_workflow_coverage.py"
+      - "scripts/run_governance_guards.py"
+      - "scripts/governance/change_test_gate_rules.yaml"
+      - "cli/scripts/changed_files_test_gate.py"
+      - "cli/scripts/provider_config_boundary_guard.py"
+      - "cli/tests/test_changed_files_test_gate.py"
+      - "cli/tests/test_provider_config_boundary_guard.py"
+      - "tests/test_owners_coverage_guard.py"
+      - "tests/test_governance_doc_links_guard.py"
+      - "tests/test_taskboard_status_guard.py"
+      - "tests/test_governance_workflow_coverage_guard.py"
+      - "docs/AGENTHUB_CHANGE_TEST_GATE_POLICY.md"
+      - "docs/AGENTHUB_REPOSITORY_GOVERNANCE.md"
+      - "docs/AGENTHUB_REPOSITORY_GOVERNANCE_TASKBOOK.md"
+      - "docs/AGENTHUB_DOCS_TASKBOARD_LIFECYCLE_POLICY.md"
+      - "docs/TESTING_LAYOUT_RULES.md"
+      - "docs/README.md"
+      - "docs/**"
+      - "README.md"
+      - "OWNERS.md"
+      - ".github/CODEOWNERS"
+      - ".pre-commit-config.yaml"
+      - "taskboard/**"
+  pull_request:
+    paths:
+      - ".github/workflows/governance-guards.yml"
+      - "scripts/check_owners_coverage.py"
+      - "scripts/check_governance_doc_links.py"
+      - "scripts/check_taskboard_status.py"
+      - "scripts/check_governance_workflow_coverage.py"
+      - "scripts/run_governance_guards.py"
+      - "scripts/governance/change_test_gate_rules.yaml"
+      - "cli/scripts/changed_files_test_gate.py"
+      - "cli/scripts/provider_config_boundary_guard.py"
+      - "cli/tests/test_changed_files_test_gate.py"
+      - "cli/tests/test_provider_config_boundary_guard.py"
+      - "tests/test_owners_coverage_guard.py"
+      - "tests/test_governance_doc_links_guard.py"
+      - "tests/test_taskboard_status_guard.py"
+      - "tests/test_governance_workflow_coverage_guard.py"
+      - "docs/AGENTHUB_CHANGE_TEST_GATE_POLICY.md"
+      - "docs/AGENTHUB_REPOSITORY_GOVERNANCE.md"
+      - "docs/AGENTHUB_REPOSITORY_GOVERNANCE_TASKBOOK.md"
+      - "docs/AGENTHUB_DOCS_TASKBOARD_LIFECYCLE_POLICY.md"
+      - "docs/TESTING_LAYOUT_RULES.md"
+      - "docs/README.md"
+      - "docs/**"
+      - "README.md"
+      - "OWNERS.md"
+      - ".github/CODEOWNERS"
+      - ".pre-commit-config.yaml"
+      - "taskboard/**"
+  workflow_dispatch:
+
+jobs:
+  governance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -r cli/requirements.txt
+          python -m pip install -r requirements-dev.txt
+
+      - name: Run governance guard bundle
+        run: python scripts/run_governance_guards.py --mode ci

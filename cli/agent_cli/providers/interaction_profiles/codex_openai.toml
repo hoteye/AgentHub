@@ -1,0 +1,32 @@
+schema_version = 1
+profile = "codex_openai"
+display_name = "Codex OpenAI"
+base_prompt_profile = "codex_openai"
+tool_surface_profile = "codex_openai"
+context_prelude_policy = "responses_item_first"
+tool_result_projection_policy = "codex_like"
+continuation_policy = "responses_native_preferred"
+turn_protocol_policy = "openai_responses_items"
+fallback_profile = "generic_chat"
+
+[required_capabilities]
+tool_calling = true
+reasoning = true
+
+[optional_capabilities]
+native_web_search_runtime = true
+native_web_search_mixed_tools = false
+
+[tool_families.exec_command]
+exposure = "enabled"
+projection = "canonical"
+
+[tool_families.web_search]
+exposure = "enabled"
+projection = "native_if_available"
+fallback_backend = "local"
+
+[tool_families.apply_patch]
+exposure = "enabled"
+projection = "capability_driven"
+

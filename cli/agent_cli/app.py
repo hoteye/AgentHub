@@ -1,0 +1,494 @@
+﻿from __future__ import annotations
+
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from textual.app import App, ComposeResult
+from textual.containers import Container, Horizontal, Vertical
+from textual.css.query import NoMatches
+from textual.events import MouseDown, MouseMove, MouseUp, Resize
+from textual.widgets import Static
+
+from cli.agent_cli import (
+    app_bindings_runtime,
+    app_bootstrap_helpers_runtime,
+    app_event_helpers,
+    app_preview_actions_runtime,
+    app_projection_helpers_runtime,
+    app_pure_helpers_runtime,
+    app_runtime_support_runtime,
+    app_shutdown_runtime,
+    app_tab_actions_runtime,
+)
+from cli.agent_cli.app_runtime_flow import (
+    AppRuntimeFlowMixin,
+)
+from cli.agent_cli.app_runtime_flow import (
+    _PendingRequestUserInput as _PendingRequestUserInputRuntime,
+)
+from cli.agent_cli.ui import (
+    PromptComposer,
+    SlashCommandPopup,
+    TranscriptArea,
+    TranscriptVirtualList,
+    resolve_runtime,
+    top_title_summary_runtime,
+    write_clipboard_text,
+)
+from cli.agent_cli.ui.app_transcript_coordination import AppTranscriptCoordinationMixin
+from cli.agent_cli.ui.composer_controller import ComposerControllerMixin
+from cli.agent_cli.ui.live_turn_controller import LiveTurnControllerMixin
+from cli.agent_cli.ui.presentation_controller import PresentationControllerMixin
+from cli.agent_cli.ui.prompt_transcript_window_runtime import PromptTranscriptWindowState
+from cli.agent_cli.ui.slash_controller import SlashControllerMixin
+from cli.agent_cli.ui.status_controller import StatusControllerMixin
+from cli.agent_cli.ui.tab_bar import TabBar
+from cli.agent_cli.ui.transcript_controller import TranscriptControllerMixin
+
+if TYPE_CHECKING:
+    from cli.agent_cli.runtime import AgentCliRuntime
+
+
+_PendingRequestUserInput = _PendingRequestUserInputRuntime
+
+
+class AgentCliApp(
+    AppRuntimeFlowMixin,
+    StatusControllerMixin,
+    PresentationControllerMixin,
+    ComposerControllerMixin,
+    TranscriptControllerMixin,
+    LiveTurnControllerMixin,
+    SlashControllerMixin,
+    AppTranscriptCoordinationMixin,
+    App,
+):
+    AUTO_FOCUS = "#prompt_composer"
+    LARGE_PASTE_CHAR_THRESHOLD = app_bindings_runtime.LARGE_PASTE_CHAR_THRESHOLD
+    MAX_USER_INPUT_TEXT_CHARS = app_bindings_runtime.MAX_USER_INPUT_TEXT_CHARS
+    QUIT_SHORTCUT_TIMEOUT_SECONDS = app_bindings_runtime.QUIT_SHORTCUT_TIMEOUT_SECONDS
+    IDLE_STATUS_DELAY_SECONDS = app_bindings_runtime.IDLE_STATUS_DELAY_SECONDS
+    FILE_POPUP_MATCH_LIMIT = app_bindings_runtime.FILE_POPUP_MATCH_LIMIT
+    COMMAND_OUTPUT_MAX_LINES = app_bindings_runtime.COMMAND_OUTPUT_MAX_LINES
+    _QUEUED_REQUEST_BUSY_LABEL_KEYS = dict(app_bindings_runtime.QUEUED_REQUEST_BUSY_LABEL_KEYS)
+    CSS = app_bindings_runtime.APP_CSS
+    TITLE = app_bindings_runtime.APP_TITLE
+    SUB_TITLE = app_bindings_runtime.APP_SUB_TITLE
+    BINDINGS = list(app_bindings_runtime.APP_BINDINGS)
+    _WINDOWS_DRIVE_RE = app_bindings_runtime.WINDOWS_DRIVE_RE
+    _WINDOWS_UNC_RE = app_bindings_runtime.WINDOWS_UNC_RE
+    _DEFAULT_THREAD_NAME_RE = app_bindings_runtime.DEFAULT_THREAD_NAME_RE
+
+    def __init__(
+        self,
+        *,
+        runtime: AgentCliRuntime | None = None,
+        prompt_history_home: Path | None = None,
+        language: str | None = None,
+        theme_id: str | None = None,
+    ) -> None:
+        resolved_runtime = resolve_runtime(runtime)
+        bootstrap = app_bootstrap_helpers_runtime.build_bootstrap_context(
+            runtime=resolved_runtime,
+            language=language,
+            theme_id=theme_id,
+        )
+        app_bootstrap_helpers_runtime.apply_pre_super_state(
+            self,
+            language=language,
+            theme_id=theme_id,
+            context=bootstrap,
+        )
+        super().__init__(driver_class=bootstrap.driver_class)
+        app_bootstrap_helpers_runtime.initialize_app_state(
+            self,
+            prompt_history_home=prompt_history_home,
+            context=bootstrap,
+        )
+
+    @property
+    def runtime(self) -> AgentCliRuntime:
+        mgr = self._tab_manager
+        if mgr is not None:
+            return mgr.active_session.runtime
+        return self._direct_runtime
+
+    @runtime.setter
+    def runtime(self, value: AgentCliRuntime) -> None:
+        mgr = self._tab_manager
+        if mgr is not None:
+            mgr.active_session.runtime = value
+            binder = getattr(mgr, "_bind_thread_store_update_active_getter", None)
+            if callable(binder):
+                binder(mgr.active_tab_id, value)
+            backend_binder = getattr(mgr, "_bind_visible_child_tab_backend", None)
+            if callable(backend_binder):
+                backend_binder(mgr.active_tab_id, value)
+        self._direct_runtime = value
+
+    @property
+    def status_data(self) -> dict:
+        override = getattr(self, "_status_data_session_override", None)
+        if override is not None:
+            data = getattr(override, "status_data", None)
+            if not isinstance(data, dict):
+                override.status_data = {}
+            return override.status_data
+        mgr = self._tab_manager
+        if mgr is not None:
+            session = mgr.active_session
+            data = getattr(session, "status_data", None)
+            if not isinstance(data, dict):
+                session.status_data = {}
+            return session.status_data
+        data = getattr(self, "_direct_status_data", None)
+        if not isinstance(data, dict):
+            self._direct_status_data = {}
+        return self._direct_status_data
+
+    @status_data.setter
+    def status_data(self, value: dict) -> None:
+        data = dict(value or {})
+        override = getattr(self, "_status_data_session_override", None)
+        if override is not None:
+            override.status_data = data
+            return
+        mgr = self._tab_manager
+        if mgr is not None:
+            mgr.active_session.status_data = data
+            return
+        self._direct_status_data = data
+
+    @property
+    def _request_queue(self):
+        mgr = self._tab_manager
+        if mgr is not None:
+            return mgr.active_session.request_queue
+        return self._direct_request_queue
+
+    @_request_queue.setter
+    def _request_queue(self, value) -> None:
+        mgr = self._tab_manager
+        if mgr is not None:
+            mgr.active_session.request_queue = value
+        self._direct_request_queue = value
+
+    @property
+    def _request_worker_task(self):
+        mgr = self._tab_manager
+        if mgr is not None:
+            return mgr.active_session.request_worker_task
+        return self._direct_request_worker_task
+
+    @_request_worker_task.setter
+    def _request_worker_task(self, value) -> None:
+        mgr = self._tab_manager
+        if mgr is not None:
+            mgr.active_session.request_worker_task = value
+        self._direct_request_worker_task = value
+
+    def _t(self, key: str, **kwargs: object) -> str:
+        return self._messages.text(key, **kwargs)
+
+    def copy_to_clipboard(self, text: str) -> None:
+        if write_clipboard_text(text):
+            return
+        super().copy_to_clipboard(text)
+
+    def _subtitle_text(self, busy: bool) -> str:
+        return app_runtime_support_runtime.subtitle_text(self._t, busy=busy)
+
+    def _resolve_transcript_task_hint_text(self) -> str:
+        return app_projection_helpers_runtime.resolve_transcript_task_hint_text(
+            runtime=self.runtime,
+            top_title_text=self._top_title_text,
+            base_title=self._top_title_base,
+        )
+
+    def _refresh_transcript_task_hint(self) -> None:
+        self._transcript_task_hint_text = self._resolve_transcript_task_hint_text()
+        try:
+            task_hint = self.query_one("#transcript_task_hint", Static)
+        except NoMatches:
+            return
+        measured_width = int(getattr(task_hint.size, "width", 0) or 0)
+        if measured_width <= 0:
+            measured_width = max(1, int(self.size.width))
+        task_hint.update(self._crop_one_line(self._transcript_task_hint_text, measured_width))
+
+    def _refresh_top_title_bar(self) -> None:
+        app_tab_actions_runtime.refresh_top_title_bar(self)
+
+    def _set_top_title_base(self) -> None:
+        self._top_title_text = self._top_title_base
+        self._refresh_top_title_bar()
+
+    def _normalize_thread_title_candidate(self, value: str) -> str:
+        return app_pure_helpers_runtime.normalize_thread_title_candidate(
+            value,
+            default_thread_name_re=self._DEFAULT_THREAD_NAME_RE,
+        )
+
+    def _resolve_thread_title_from_runtime(self, *, refresh_from_store: bool) -> str:
+        return app_projection_helpers_runtime.resolve_thread_title_from_runtime(
+            runtime=self.runtime,
+            refresh_from_store=refresh_from_store,
+            default_thread_name_re=self._DEFAULT_THREAD_NAME_RE,
+        )
+
+    def _sync_top_title_from_thread_name(self, *, refresh_from_store: bool) -> bool:
+        thread_title = self._resolve_thread_title_from_runtime(
+            refresh_from_store=refresh_from_store
+        )
+        if not thread_title:
+            return False
+        self._top_title_text = thread_title
+        self._refresh_top_title_bar()
+        return True
+
+    def _set_top_title_from_prompt(self, prompt: str) -> None:
+        if self._sync_top_title_from_thread_name(refresh_from_store=False):
+            return
+        if not top_title_summary_runtime.should_update_title_from_prompt(prompt):
+            return
+        content_width = max(1, int(self.size.width) - 2)
+        self._top_title_text = app_projection_helpers_runtime.top_title_text_from_prompt(
+            prompt=prompt,
+            base_title=self._top_title_base,
+            width=content_width,
+            crop_one_line_fn=self._crop_one_line,
+        )
+        self._refresh_top_title_bar()
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(id="body"):
+            with Vertical(id="work_area"):
+                with Horizontal(id="top_title_row"):
+                    yield Static(self._top_title_leading_symbol, id="top_title_icon")
+                    yield Static(self._top_title_text, id="top_title_bar")
+                yield Static(self._transcript_task_hint_text, id="transcript_task_hint")
+                yield TranscriptArea(
+                    "\n".join(self._transcript_lines),
+                    id="main_log",
+                    read_only=True,
+                    soft_wrap=True,
+                    show_line_numbers=False,
+                )
+                yield TranscriptVirtualList(id="transcript_log")
+                with Vertical(id="bottom_dock"):
+                    yield SlashCommandPopup(id="slash_popup", presentation=self._presentation)
+                    yield Static("", id="status_line")
+                    with Container(id="composer_shell"):
+                        yield PromptComposer(
+                            "",
+                            id="prompt_composer",
+                            presentation=self._presentation,
+                        )
+                    yield Static("", id="composer_footer")
+            yield TabBar(id="tab_bar", orientation="vertical")
+
+    def on_mount(self) -> None:
+        app_event_helpers.on_mount(self)
+
+    def on_resize(self, event: Resize) -> None:
+        self._apply_layout_state(event.size.width)
+
+    def on_key(self, event) -> None:
+        app_event_helpers.on_key(self, event)
+
+    def on_mouse_down(self, event: MouseDown) -> None:
+        app_event_helpers.on_mouse_down(self, event)
+
+    def on_mouse_up(self, event: MouseUp) -> None:
+        app_event_helpers.on_mouse_up(self, event)
+
+    def on_mouse_move(self, event: MouseMove) -> None:
+        app_event_helpers.on_mouse_move(self, event)
+
+    def _record_idle_mouse_position(self, event: MouseMove | MouseUp) -> None:
+        app_event_helpers.record_idle_mouse_position(self, event)
+
+    async def on_unmount(self) -> None:
+        await app_shutdown_runtime.on_unmount(self)
+
+    async def action_refresh_state(self) -> None:
+        if not self._busy_shortcut_policy_allows("/provider"):
+            return
+        notice_key = app_runtime_support_runtime.notice_key_for_pending(
+            has_pending_work=self._has_pending_runtime_work(),
+            queued_key="system.queued_provider",
+            running_key="system.running_provider",
+        )
+        self._write_system_notice(self._t(notice_key))
+        await self._enqueue_runtime_request("/provider", [], priority="later")
+
+    async def action_show_tools(self) -> None:
+        if not self._busy_shortcut_policy_allows("/tools"):
+            return
+        notice_key = app_runtime_support_runtime.notice_key_for_pending(
+            has_pending_work=self._has_pending_runtime_work(),
+            queued_key="system.queued_tools",
+            running_key="system.running_tools",
+        )
+        self._write_system_notice(self._t(notice_key))
+        await self._enqueue_runtime_request("/tools", [], priority="later")
+
+    def _busy_shortcut_policy_allows(self, command_text: str) -> bool:
+        if not self._has_pending_runtime_work():
+            return True
+        if self._slash_command_available_during_busy(command_text):
+            return True
+        self._write_system_notice(self._BUSY_SLASH_COMMAND_NOTICE)
+        self._focus_input()
+        return False
+
+    def action_ctrl_c(self) -> None:
+        app_event_helpers.action_ctrl_c(self)
+
+    def action_focused_undo_or_noop(self) -> None:
+        composer = self._focused_prompt_composer()
+        if composer is None:
+            return
+        composer.undo()
+
+    def action_clear_logs(self) -> None:
+        self._clear_quit_shortcut()
+        self._transcript_lines = []
+        self._transcript_screen_snapshot_entries = None
+        self._prompt_transcript_window_state = PromptTranscriptWindowState()
+        last_entry = self._transcript_entries[-1] if self._transcript_entries else None
+        self._prompt_transcript_clear_boundary_entry_id = (
+            str(last_entry.entry_id or "").strip() or None
+        )
+        try:
+            self.query_one("#main_log", TranscriptArea).load_transcript([])
+        except NoMatches:
+            pass
+        self._write_system_notice(self._t("system.log_cleared"))
+        self._focus_input()
+
+    def action_toggle_transcript(self) -> None:
+        target_mode = "transcript" if self._screen_mode != "transcript" else "prompt"
+        self._set_screen_mode(target_mode)
+
+    def action_interrupt_run(self) -> None:
+        app_event_helpers.action_interrupt_run(self)
+
+    def _focused_prompt_composer(self) -> PromptComposer | None:
+        focused = getattr(self, "focused", None)
+        if isinstance(focused, PromptComposer):
+            return focused
+        try:
+            composer = self.query_one("#prompt_composer", PromptComposer)
+        except NoMatches:
+            return None
+        if composer.has_focus:
+            return composer
+        return None
+
+    def handle_escape_interrupt(self) -> bool:
+        if not self._has_interruptible_run():
+            return False
+        self.action_interrupt_run()
+        return True
+
+    def handle_escape_key(self) -> bool:
+        return app_event_helpers.handle_escape_key(self)
+
+    def on_prompt_composer_changed(self) -> None:
+        app_event_helpers.on_prompt_composer_changed(self)
+
+    def _user_input_too_large_message(self, actual_chars: int) -> str:
+        return self._t(
+            "system.message_too_large",
+            limit=self.MAX_USER_INPUT_TEXT_CHARS,
+            actual=actual_chars,
+        )
+
+    def _clear_shortcut_overlay(self) -> None:
+        if not self._shortcut_overlay_active:
+            return
+        self._shortcut_overlay_active = False
+        try:
+            self._update_bottom_dock(max(1, self.size.width))
+        except NoMatches:
+            return
+
+    def toggle_shortcut_overlay_from_question_mark(self) -> bool:
+        if not app_pure_helpers_runtime.can_toggle_shortcut_overlay(
+            screen_mode=getattr(self, "_screen_mode", "prompt"),
+            prompt_text=self._current_prompt_text(),
+        ):
+            return False
+        self._shortcut_overlay_active = not self._shortcut_overlay_active
+        try:
+            self._update_bottom_dock(max(1, self.size.width))
+        except NoMatches:
+            pass
+        return True
+
+    def action_toggle_latest_web_item(self) -> None:
+        app_preview_actions_runtime.action_toggle_latest_web_item(self)
+
+    def action_new_tab(self) -> None:
+        app_tab_actions_runtime.action_new_tab(self)
+
+    def action_fork_tab(self) -> None:
+        app_tab_actions_runtime.action_fork_tab(self)
+
+    def action_close_tab(self) -> None:
+        app_tab_actions_runtime.action_close_tab(self)
+
+    def action_next_tab(self) -> None:
+        app_tab_actions_runtime.action_next_tab(self)
+
+    def action_prev_tab(self) -> None:
+        app_tab_actions_runtime.action_prev_tab(self)
+
+    def _dismiss_request_user_input_overlay_for_inactive_tab(self) -> None:
+        app_tab_actions_runtime.dismiss_request_user_input_overlay_for_inactive_tab(self)
+
+    def _restore_pending_interactions_for_tab(self, tab_id: str) -> None:
+        app_tab_actions_runtime.restore_pending_interactions_for_tab(self, tab_id)
+
+    def _set_busy_for_tab(self, tab_id: str, busy: bool) -> None:
+        app_tab_actions_runtime.set_busy_for_tab(self, tab_id, busy)
+
+    def _mark_tab_transcript_updated(self, tab_id: str, *, unread: bool) -> None:
+        app_tab_actions_runtime.mark_tab_transcript_updated(self, tab_id, unread=unread)
+
+    def _capture_tab_live_turn_state(self) -> dict[str, object]:
+        return app_tab_actions_runtime.capture_tab_live_turn_state(self)
+
+    def _restore_tab_live_turn_state(self, state: dict[str, object]) -> None:
+        app_tab_actions_runtime.restore_tab_live_turn_state(self, state)
+
+    def _run_with_tab_transcript_state(self, session: object, callback) -> None:
+        app_tab_actions_runtime.run_with_tab_transcript_state(self, session, callback)
+
+    def _on_request_start_for_tab(self, tab_id: str, text: str) -> None:
+        app_tab_actions_runtime.on_request_start_for_tab(self, tab_id, text)
+
+    def _begin_activity_capture_for_tab(self, tab_id: str) -> None:
+        app_tab_actions_runtime.begin_activity_capture_for_tab(self, tab_id)
+
+    def _render_response_for_tab(self, tab_id: str, response: object) -> None:
+        app_tab_actions_runtime.render_response_for_tab(self, tab_id, response)
+
+    def _handle_response_for_tab(self, tab_id: str, response: object) -> None:
+        app_tab_actions_runtime.handle_response_for_tab(self, tab_id, response)
+
+    def _write_reply_for_tab(self, tab_id: str, text: str) -> None:
+        app_tab_actions_runtime.write_reply_for_tab(self, tab_id, text)
+
+    def _on_tab_activity(self, tab_id: str, event: object) -> None:
+        app_tab_actions_runtime.on_tab_activity(self, tab_id, event)
+
+    def _on_tab_turn_event(self, tab_id: str, event: object) -> None:
+        app_tab_actions_runtime.on_tab_turn_event(self, tab_id, event)
+
+    def _echo_prompt_for_tab(self, tab_id: str, text: str, attachments: list | None = None) -> None:
+        app_tab_actions_runtime.echo_prompt_for_tab(self, tab_id, text, attachments)
+
+    def _on_idle_for_tab(self, tab_id: str) -> None:
+        app_tab_actions_runtime.on_idle_for_tab(self, tab_id)

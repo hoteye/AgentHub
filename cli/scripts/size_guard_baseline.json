@@ -1,0 +1,7 @@
+{
+  "hard_limit": 500,
+  "allow_over_hard": {
+    "cli/agent_cli/runtime.py": 1120,
+    "cli/agent_cli/runtime_policy_gateway_bindings_runtime.py": 560
+  }
+}

@@ -1,0 +1,18 @@
+from __future__ import annotations
+
+LATEST_PENDING_APPROVAL_ID_STATUS_KEY = "latest_pending_approval_id"
+PENDING_APPROVALS_STATUS_KEY = "pending_approvals"
+REQUEST_USER_INPUT_WAITING_LABEL = "waiting for user input"
+REQUEST_USER_INPUT_WAITING_STATUS_KEY = "request_user_input_waiting"
+STATUS_FALSE = "false"
+STATUS_TRUE = "true"
+
+
+__all__ = [
+    "LATEST_PENDING_APPROVAL_ID_STATUS_KEY",
+    "PENDING_APPROVALS_STATUS_KEY",
+    "REQUEST_USER_INPUT_WAITING_LABEL",
+    "REQUEST_USER_INPUT_WAITING_STATUS_KEY",
+    "STATUS_FALSE",
+    "STATUS_TRUE",
+]

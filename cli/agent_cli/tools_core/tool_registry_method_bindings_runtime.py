@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+from typing import Any
+
+from cli.agent_cli.tools_core import (
+    tool_registry_method_bindings_apply_patch_helpers_runtime,
+    tool_registry_method_bindings_browser_policy_runtime,
+    tool_registry_method_bindings_file_helpers_runtime,
+    tool_registry_method_bindings_misc_helpers_runtime,
+    tool_registry_method_bindings_table_runtime,
+)
+
+tool_library_runtime = tool_registry_method_bindings_apply_patch_helpers_runtime.tool_library_runtime
+tool_registry_file_guard_runtime = (
+    tool_registry_method_bindings_apply_patch_helpers_runtime.tool_registry_file_guard_runtime
+)
+tools_helper_runtime = tool_registry_method_bindings_apply_patch_helpers_runtime.tools_helper_runtime
+
+apply_patch = tool_registry_method_bindings_apply_patch_helpers_runtime.apply_patch
+apply_patch_result = tool_registry_method_bindings_apply_patch_helpers_runtime.apply_patch_result
+_claude_structured_edit_guard_event = (
+    tool_registry_method_bindings_apply_patch_helpers_runtime._claude_structured_edit_guard_event
+)
+_claude_structured_edit_guard_failure_event = (
+    tool_registry_method_bindings_apply_patch_helpers_runtime._claude_structured_edit_guard_failure_event
+)
+_claude_structured_edit_arguments = (
+    tool_registry_method_bindings_apply_patch_helpers_runtime._claude_structured_edit_arguments
+)
+glob_files = tool_registry_method_bindings_file_helpers_runtime.glob_files
+glob_files_result = tool_registry_method_bindings_file_helpers_runtime.glob_files_result
+grep_files = tool_registry_method_bindings_file_helpers_runtime.grep_files
+grep_files_result = tool_registry_method_bindings_file_helpers_runtime.grep_files_result
+list_dir = tool_registry_method_bindings_file_helpers_runtime.list_dir
+list_dir_result = tool_registry_method_bindings_file_helpers_runtime.list_dir_result
+read_file = tool_registry_method_bindings_file_helpers_runtime.read_file
+read_file_result = tool_registry_method_bindings_file_helpers_runtime.read_file_result
+file_list = tool_registry_method_bindings_file_helpers_runtime.file_list
+file_list_result = tool_registry_method_bindings_file_helpers_runtime.file_list_result
+file_search = tool_registry_method_bindings_file_helpers_runtime.file_search
+file_search_result = tool_registry_method_bindings_file_helpers_runtime.file_search_result
+file_read = tool_registry_method_bindings_file_helpers_runtime.file_read
+file_read_result = tool_registry_method_bindings_file_helpers_runtime.file_read_result
+_normalize_workspace_file_path = tool_registry_method_bindings_file_helpers_runtime._normalize_workspace_file_path
+_remember_full_file_read = tool_registry_method_bindings_file_helpers_runtime._remember_full_file_read
+office_skills = tool_registry_method_bindings_misc_helpers_runtime.office_skills
+office_skills_result = tool_registry_method_bindings_misc_helpers_runtime.office_skills_result
+office_run = tool_registry_method_bindings_misc_helpers_runtime.office_run
+office_run_result = tool_registry_method_bindings_misc_helpers_runtime.office_run_result
+view_image = tool_registry_method_bindings_misc_helpers_runtime.view_image
+view_image_result = tool_registry_method_bindings_misc_helpers_runtime.view_image_result
+web_search = tool_registry_method_bindings_misc_helpers_runtime.web_search
+web_search_result = tool_registry_method_bindings_misc_helpers_runtime.web_search_result
+web_fetch = tool_registry_method_bindings_misc_helpers_runtime.web_fetch
+web_fetch_result = tool_registry_method_bindings_misc_helpers_runtime.web_fetch_result
+
+
+_TOOL_LIBRARY_METHOD_BINDINGS = (
+    *tool_registry_method_bindings_apply_patch_helpers_runtime.APPLY_PATCH_METHOD_BINDINGS,
+    *tool_registry_method_bindings_file_helpers_runtime.FILE_METHOD_BINDINGS,
+    *tool_registry_method_bindings_misc_helpers_runtime.MISC_METHOD_BINDINGS,
+    *tool_registry_method_bindings_browser_policy_runtime.BROWSER_POLICY_METHOD_BINDINGS,
+)
+
+
+def bind_tool_library_methods(registry_cls: Any) -> None:
+    tool_registry_method_bindings_table_runtime.bind_method_table(
+        registry_cls,
+        method_bindings=_TOOL_LIBRARY_METHOD_BINDINGS,
+    )
