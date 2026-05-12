@@ -8,6 +8,12 @@ The format is based on Keep a Changelog, with one release section per published 
 
 No unreleased changes yet.
 
+## [0.1.7] - 2026-05-12
+
+### Fixed
+
+- Fixed macOS executable packaging by aligning the Codex sidecar runtime platform key with the prepared runtime catalog.
+
 ## [0.1.6] - 2026-05-12
 
 ### Fixed

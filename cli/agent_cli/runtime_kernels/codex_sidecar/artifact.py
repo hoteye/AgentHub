@@ -130,7 +130,7 @@ def current_platform_key() -> str:
     machine = platform.machine().strip().lower()
     arch = _normalized_arch(machine)
     if system == "darwin":
-        return f"macos-{arch}"
+        return f"macos-{'arm64' if arch == 'aarch64' else arch}"
     if system == "windows":
         return f"windows-{arch}"
     return f"linux-{arch}"

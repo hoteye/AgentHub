@@ -339,6 +339,19 @@ class CodexSidecarArtifactTest(unittest.TestCase):
         self.assertEqual(codex_binary_name("linux-x86_64"), "codex-app-server")
         self.assertIn("-", current_platform_key())
 
+    def test_current_platform_key_matches_prepared_macos_runtime_key(self) -> None:
+        with (
+            patch(
+                "cli.agent_cli.runtime_kernels.codex_sidecar.artifact.platform.system",
+                return_value="Darwin",
+            ),
+            patch(
+                "cli.agent_cli.runtime_kernels.codex_sidecar.artifact.platform.machine",
+                return_value="arm64",
+            ),
+        ):
+            self.assertEqual(current_platform_key(), "macos-arm64")
+
     def test_probe_codex_version_returns_empty_when_version_flag_is_unsupported(self) -> None:
         completed = SimpleNamespace(
             returncode=2,

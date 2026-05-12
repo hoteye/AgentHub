@@ -36,7 +36,7 @@ def codex_platform_key() -> str:
     }
     arch = aliases.get(machine, machine or "unknown")
     if system == "darwin":
-        return f"macos-{arch}"
+        return f"macos-{'arm64' if arch == 'aarch64' else arch}"
     if system == "windows":
         return f"windows-{arch}"
     return f"linux-{arch}"

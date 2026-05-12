@@ -180,6 +180,13 @@ class BuildReleaseScriptTest(unittest.TestCase):
         for module_name in MODULE.PYINSTALLER_OPTIONAL_HEAVY_EXCLUDES:
             self.assertIn(module_name, excluded_modules)
 
+    def test_codex_platform_key_matches_prepared_macos_runtime_key(self) -> None:
+        with (
+            patch.object(MODULE.packaging_helpers.platform, "system", return_value="Darwin"),
+            patch.object(MODULE.packaging_helpers.platform, "machine", return_value="arm64"),
+        ):
+            self.assertEqual(MODULE.codex_platform_key(), "macos-arm64")
+
     def test_package_output_onefile_replaces_stale_onedir_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
