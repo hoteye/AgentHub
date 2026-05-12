@@ -163,12 +163,20 @@ def build_app_css(theme: Any) -> str:
         margin: 0;
     }}
 
+    #content_area {{
+        height: 1fr;
+        layout: horizontal;
+        margin: 0;
+        padding: 0;
+    }}
+
     #tab_bar {{
         width: 2;
         height: 1fr;
         padding: 0;
         content-align: left top;
         color: {theme.text_secondary};
+        background: {theme.info_surface_bg};
     }}
 
     #main_log, #transcript_log {{

@@ -8,6 +8,24 @@ The format is based on Keep a Changelog, with one release section per published 
 
 No unreleased changes yet.
 
+## [0.1.5] - 2026-05-12
+
+### Added
+
+- Added public README coverage for visible multi-tab orchestration, Codex sidecar runtime behavior, and the split preview pane workflow.
+- Added a README workspace illustration showing parent/child tabs, `TaskRun` summaries, Codex sidecar threads, and the right-side preview pane.
+- Added a public binary install script that resolves the latest `cli-v*` GitHub Release, downloads the matching platform bundle, verifies the checksum when available, and installs an `agenthub` launcher.
+
+### Changed
+
+- README now links directly to GitHub Releases and documents one-command binary installation.
+- Public export tooling now preserves the README workspace illustration and keeps the binary install script in the sanitized public tree.
+
+### Fixed
+
+- Left-side vertical tab rail now renders background busy, pending, unread, and dirty status markers.
+- Tab restore now detects legacy Codex sidecar manifests whose kernel session id was saved as the thread id.
+
 ## [0.1.4] - 2026-05-12
 
 ### Added

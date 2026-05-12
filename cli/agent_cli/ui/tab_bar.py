@@ -28,7 +28,7 @@ _PENDING_MARKER = "!"
 _UNREAD_MARKER = "*"
 _DIRTY_MARKER = "~"
 _CLOSE_MARKER = "×"
-_RAIL_ACTIVE_INDICATOR = "▎"
+_RAIL_ACTIVE_INDICATOR = "▕"
 _LEADING_PADDING = " "
 _TRAILING_PADDING = " "
 _SEPARATOR = " │ "
@@ -89,6 +89,30 @@ def _lighten_hex_color(color: str, *, ratio: float = 0.16) -> str:
         max(0, min(255, int(round(channel + (255 - channel) * normalized)))) for channel in channels
     ]
     return "#{:02x}{:02x}{:02x}".format(*lightened)
+
+
+def _darken_hex_color(color: str, *, factor: float = 0.75) -> str:
+    candidate = str(color or "").strip()
+    if not (len(candidate) == 7 and candidate.startswith("#")):
+        return candidate or _RAIL_THEME_BG
+    try:
+        channels = [int(candidate[idx : idx + 2], 16) for idx in (1, 3, 5)]
+    except ValueError:
+        return candidate or _RAIL_THEME_BG
+    darkened = [max(0, min(255, int(round(channel * factor)))) for channel in channels]
+    return "#{:02x}{:02x}{:02x}".format(*darkened)
+
+
+def _invert_hex_color(color: str) -> str:
+    candidate = str(color or "").strip()
+    if not (len(candidate) == 7 and candidate.startswith("#")):
+        return _RAIL_THEME_BG
+    try:
+        channels = [int(candidate[idx : idx + 2], 16) for idx in (1, 3, 5)]
+    except ValueError:
+        return _RAIL_THEME_BG
+    inverted = [255 - c for c in channels]
+    return "#{:02x}{:02x}{:02x}".format(*inverted)
 
 
 class TabBar(Static):
@@ -232,7 +256,7 @@ class TabBar(Static):
         if top_padding:
             text.append("\n" * top_padding)
         for index, tab in enumerate(self._tabs):
-            bg = self._rail_theme_bg if index % 2 == 0 else self._rail_alt_bg
+            bg = _darken_hex_color(self._rail_theme_bg, factor=0.75)
             base_style = RichStyle(
                 color=self._rail_text if tab.is_active else self._rail_text_dim,
                 bgcolor=bg,
@@ -240,24 +264,29 @@ class TabBar(Static):
             )
             tab_start_y = top_padding + index * _RAIL_TAB_HEIGHT
             tab_end_y = tab_start_y + _RAIL_TAB_HEIGHT
-            label_line = self._rail_tab_code(index, active=tab.is_active)
-            top_line = self._rail_status_text(tab)[:1] or " "
-            bottom_line = " "
+            label_line = tab.tab_id[-1]
+            top_line = self._rail_status_text(tab) or " "
+            bottom_line = "▁"
             content_width = width - _cell_width(_RAIL_ACTIVE_INDICATOR) if tab.is_active else width
 
+            align = "right" if tab.is_active else "left"
             if index > 0:
                 text.append("\n")
+            text.append(self._pad_rail_line(top_line, content_width, align=align), style=base_style)
             if tab.is_active:
                 text.append(_RAIL_ACTIVE_INDICATOR, style=base_style)
-            text.append(self._pad_rail_line(top_line, content_width), style=base_style)
             text.append("\n")
+            text.append(
+                self._pad_rail_line(label_line, content_width, align=align), style=base_style
+            )
             if tab.is_active:
                 text.append(_RAIL_ACTIVE_INDICATOR, style=base_style)
-            text.append(self._pad_rail_line(label_line, content_width), style=base_style)
             text.append("\n")
+            text.append(
+                self._pad_rail_line(bottom_line, content_width, align=align), style=base_style
+            )
             if tab.is_active:
                 text.append(_RAIL_ACTIVE_INDICATOR, style=base_style)
-            text.append(self._pad_rail_line(bottom_line, content_width), style=base_style)
 
             self._tab_spans.append((tab.tab_id, tab_start_y, tab_end_y))
 
@@ -269,7 +298,7 @@ class TabBar(Static):
         if top_padding:
             text.append("\n" * top_padding)
         for index, tab in enumerate(self._tabs):
-            bg = self._rail_theme_bg if index % 2 == 0 else self._rail_alt_bg
+            bg = _darken_hex_color(self._rail_theme_bg, factor=0.75)
             base_style = RichStyle(
                 color=self._rail_text if tab.is_active else self._rail_text_dim,
                 bgcolor=bg,
@@ -278,10 +307,13 @@ class TabBar(Static):
             tab_start_y = top_padding + index * tab_height
             tab_end_y = tab_start_y + tab_height
             code = self._rail_tab_code(index, active=tab.is_active)
+            status_text = self._rail_status_text(tab)
 
             if index > 0:
                 text.append("\n")
-            if tab.is_active:
+            if status_text:
+                text.append(status_text[:1], style=base_style)
+            elif tab.is_active:
                 text.append(_COMPACT_ACTIVE_TOP, style=base_style)
             else:
                 text.append(" ", style=base_style)
@@ -320,9 +352,13 @@ class TabBar(Static):
         code = alphabet[index] if 0 <= index < len(alphabet) else "Z"
         return code
 
-    def _pad_rail_line(self, value: str, width: int) -> str:
+    def _pad_rail_line(self, value: str, width: int, *, align: str = "center") -> str:
         cropped = _crop_cells(value, max(1, width))
         remaining = max(0, width - _cell_width(cropped))
+        if align == "left":
+            return f"{cropped}{' ' * remaining}"
+        if align == "right":
+            return f"{' ' * remaining}{cropped}"
         left = (remaining + 1) // 2
         right = remaining - left
         return f"{' ' * left}{cropped}{' ' * right}"

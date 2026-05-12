@@ -267,14 +267,16 @@ class AgentCliApp(
                     yield Static(self._top_title_leading_symbol, id="top_title_icon")
                     yield Static(self._top_title_text, id="top_title_bar")
                 yield Static(self._transcript_task_hint_text, id="transcript_task_hint")
-                yield TranscriptArea(
-                    "\n".join(self._transcript_lines),
-                    id="main_log",
-                    read_only=True,
-                    soft_wrap=True,
-                    show_line_numbers=False,
-                )
-                yield TranscriptVirtualList(id="transcript_log")
+                with Horizontal(id="content_area"):
+                    yield TabBar(id="tab_bar", orientation="vertical")
+                    yield TranscriptArea(
+                        "\n".join(self._transcript_lines),
+                        id="main_log",
+                        read_only=True,
+                        soft_wrap=True,
+                        show_line_numbers=False,
+                    )
+                    yield TranscriptVirtualList(id="transcript_log")
                 with Vertical(id="bottom_dock"):
                     yield SlashCommandPopup(id="slash_popup", presentation=self._presentation)
                     yield Static("", id="status_line")
@@ -285,7 +287,6 @@ class AgentCliApp(
                             presentation=self._presentation,
                         )
                     yield Static("", id="composer_footer")
-            yield TabBar(id="tab_bar", orientation="vertical")
 
     def on_mount(self) -> None:
         app_event_helpers.on_mount(self)

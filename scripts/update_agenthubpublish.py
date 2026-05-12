@@ -68,9 +68,7 @@ PUBLIC_DOC_PATHS = {
     Path("SECURITY.md"),
 }
 PUBLIC_OVERLAY_PATHS = {
-    *PUBLIC_DOC_PATHS,
     Path(".github/workflows/test.yml"),
-    Path("assets/agenthub-terminal-preview.svg"),
 }
 
 

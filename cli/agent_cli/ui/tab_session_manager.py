@@ -75,8 +75,19 @@ from cli.agent_cli.ui.tab_session_manifest import (
 )
 
 
+def _manifest_tab_restore_engine(tab_info: TabSessionManifestTab) -> KernelEngine:
+    engine = str(getattr(tab_info, "engine", "") or "").strip()
+    if engine == "codex_sidecar":
+        return "codex_sidecar"
+    thread_id = str(getattr(tab_info, "thread_id", "") or "").strip()
+    kernel_session_id = str(getattr(tab_info, "kernel_session_id", "") or "").strip()
+    if kernel_session_id and kernel_session_id == thread_id:
+        return "codex_sidecar"
+    return "agenthub_python"
+
+
 class TabSessionManager:
-    MAX_TABS = 8
+    MAX_TABS = 15
 
     def __init__(self, *, app: Any, initial_session: TabSession) -> None:
         self._app = app
@@ -191,16 +202,17 @@ class TabSessionManager:
         skipped_count = 0
         source_thread_id = str(getattr(source_runtime, "thread_id", "") or "").strip()
         for tab_info in manifest.tabs:
-            if tab_info.engine == "codex_sidecar":
+            restore_engine = _manifest_tab_restore_engine(tab_info)
+            if restore_engine == "codex_sidecar":
                 runtime = _resume_codex_sidecar_tab_runtime(self._app, tab_info)
             else:
                 runtime = source_runtime if tab_info.thread_id == source_thread_id else None
-            if runtime is None and tab_info.engine != "codex_sidecar":
+            if runtime is None and restore_engine != "codex_sidecar":
                 runtime = _clone_tab_runtime(self._app, tab_info.tab_id, source_runtime)
             if runtime is None:
                 skipped_count += 1
                 continue
-            if tab_info.engine != "codex_sidecar":
+            if restore_engine != "codex_sidecar":
                 try:
                     if str(getattr(runtime, "thread_id", "") or "").strip() != tab_info.thread_id:
                         runtime.resume_thread(tab_info.thread_id)
@@ -219,7 +231,7 @@ class TabSessionManager:
             elif str(getattr(runtime, "thread_id", "") or "").strip() != tab_info.thread_id:
                 skipped_count += 1
                 continue
-            if tab_info.engine == "codex_sidecar":
+            if restore_engine == "codex_sidecar":
                 _hydrate_codex_runtime_from_session_metadata(runtime)
             self._bind_thread_store_update_active_getter(tab_info.tab_id, runtime)
             self._bind_visible_child_tab_backend(tab_info.tab_id, runtime)
@@ -346,8 +358,8 @@ class TabSessionManager:
                     provider_model=str(
                         status.get("provider_model") or status.get("model_key") or ""
                     ),
-                    engine=session.engine,
-                    kernel_session_id=session.kernel_session_id,
+                    engine=_tab_session_engine_for_runtime(runtime),
+                    kernel_session_id=_tab_session_kernel_session_id(runtime),
                     forked_from_tab_id=session.forked_from_tab_id,
                     forked_from_thread_id=session.forked_from_thread_id,
                     fork_mode=session.fork_mode,
@@ -447,7 +459,7 @@ class TabSessionManager:
             self._next_tab_serial -= 1
             return ""
         queue = _create_request_queue()
-        kernel_session = getattr(runtime, "kernel_session", None)
+        actual_engine = _tab_session_engine_for_runtime(runtime)
         session = TabSession(
             tab_id=tab_id,
             thread_id=runtime.thread_id,
@@ -456,8 +468,8 @@ class TabSessionManager:
             request_queue=queue,
             status_data=_initial_status_data_for_new_tab(self._app, runtime),
             allow_legacy_approval_hydration=False,
-            engine=engine,
-            kernel_session_id=str(getattr(kernel_session, "session_id", "") or ""),
+            engine=actual_engine,
+            kernel_session_id=_tab_session_kernel_session_id(runtime),
         )
         self._tabs[tab_id] = session
         self._tab_order.append(tab_id)

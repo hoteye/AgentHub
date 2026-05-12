@@ -26,6 +26,7 @@ from cli.agent_cli.ui.tab_session_manager import (
     _fork_runtime_transcript_source_items,
     _history_item_content_text,
     _history_item_to_transcript_entry,
+    _manifest_tab_restore_engine,
 )
 from cli.agent_cli.ui.tab_session_manifest import (
     TabSessionManifest,
@@ -253,6 +254,25 @@ class TestTabSessionManifest(unittest.TestCase):
         assert restored is not None
         assert restored.tabs[0].engine == "codex_sidecar"
         assert restored.tabs[0].kernel_session_id == "kernel-thread-1"
+
+    def test_restore_engine_detects_legacy_sidecar_manifest_without_engine(self):
+        tab = TabSessionManifestTab(
+            tab_id="tab-1",
+            thread_id="thread-1",
+            engine="agenthub_python",
+            kernel_session_id="thread-1",
+        )
+
+        assert _manifest_tab_restore_engine(tab) == "codex_sidecar"
+
+    def test_restore_engine_keeps_python_manifest_without_kernel_session(self):
+        tab = TabSessionManifestTab(
+            tab_id="tab-1",
+            thread_id="thread-1",
+            engine="agenthub_python",
+        )
+
+        assert _manifest_tab_restore_engine(tab) == "agenthub_python"
 
     def test_save_and_load_manifest_file(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1268,7 +1288,7 @@ class TestTabPersistenceRecovery(unittest.IsolatedAsyncioTestCase):
                 assert restored_app.runtime.thread_id == tab_thread_id
                 assert store.get_active_thread_id() == tab_thread_id
                 assert restored_app._tab_manager.active_session.custom_label == "Restored Label"
-                assert "2" in restored_app.query_one("#tab_bar", TabBar).render().plain
+                assert len(restored_app.query_one("#tab_bar", TabBar)._tabs) == 2
                 restored_composer = restored_app.query_one("#prompt_composer", PromptComposer)
                 assert restored_composer.text == "draft for restored tab"
                 assert restored_composer.cursor_pos == 5
@@ -1452,6 +1472,36 @@ class TestCodexSidecarTabIntegration(unittest.IsolatedAsyncioTestCase):
             assert app._tab_manager.switch_to_tab(tab_id)
             assert app.runtime is codex_session.runtime
             assert codex_session.runtime.gateway_state_store is python_runtime.gateway_state_store
+
+    async def test_new_tab_records_actual_engine_after_sidecar_fallback(self):
+        from cli.agent_cli.runtime_kernels.codex_sidecar import CodexSidecarKernel
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest_path = Path(temp_dir) / "tabs.json"
+            app = AgentCliApp(runtime=self._make_runtime())
+            app._tab_manager.configure_manifest_path(manifest_path)
+            app._codex_sidecar_kernel = CodexSidecarKernel(
+                codex_bin=FAKE_CODEX_BIN,
+                request_timeout=3,
+            )
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert app._tab_manager.create_tab(engine="codex_sidecar") == "tab-1"
+                await pilot.pause()
+
+                fallback_tab_id = app._tab_manager.create_tab(engine="agenthub_python")
+                await pilot.pause()
+
+                fallback_session = app._tab_manager.get(fallback_tab_id)
+                assert fallback_session is not None
+                assert fallback_session.engine == "codex_sidecar"
+                app._tab_manager.save_manifest()
+
+            restored = load_tab_session_manifest(manifest_path)
+            assert restored is not None
+            persisted = next(tab for tab in restored.tabs if tab.tab_id == fallback_tab_id)
+            assert persisted.engine == "codex_sidecar"
+            assert persisted.kernel_session_id == fallback_session.kernel_session_id
 
     async def test_ctrl_t_routes_openai_runtime_to_sidecar_when_enabled(self):
         from cli.agent_cli.providers.config_catalog import ProviderConfig
@@ -2077,6 +2127,50 @@ class TestCodexSidecarTabIntegration(unittest.IsolatedAsyncioTestCase):
                 assert any(
                     "fake sidecar reply" in str(line) for line in restored_app._transcript_lines
                 )
+
+    async def test_legacy_sidecar_manifest_with_python_engine_restores_as_sidecar(self):
+        from cli.agent_cli.runtime_kernels.codex_sidecar import CodexSidecarKernel
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest_path = Path(temp_dir) / "tabs.json"
+            sidecar_state_path = Path(temp_dir) / "fake_sidecar_state.json"
+            app = AgentCliApp(runtime=self._make_runtime())
+            app._codex_sidecar_kernel = CodexSidecarKernel(
+                codex_bin=FAKE_CODEX_BIN,
+                extra_env={"FAKE_CODEX_SIDECAR_STATE": str(sidecar_state_path)},
+                request_timeout=3,
+            )
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                tab_id = app._tab_manager.create_tab(engine="codex_sidecar")
+                await pilot.pause()
+                session = app._tab_manager.get(tab_id)
+                assert session is not None
+                thread_id = session.runtime.thread_id
+                app._tab_manager.configure_manifest_path(manifest_path)
+                app._tab_manager.save_manifest()
+
+            manifest = load_tab_session_manifest(manifest_path)
+            assert manifest is not None
+            legacy_tab = next(tab for tab in manifest.tabs if tab.tab_id == tab_id)
+            legacy_tab.engine = "agenthub_python"
+            legacy_tab.kernel_session_id = thread_id
+
+            restored_app = AgentCliApp(runtime=self._make_runtime())
+            restored_app._codex_sidecar_kernel = CodexSidecarKernel(
+                codex_bin=FAKE_CODEX_BIN,
+                extra_env={"FAKE_CODEX_SIDECAR_STATE": str(sidecar_state_path)},
+                request_timeout=3,
+            )
+
+            assert restored_app._tab_manager.restore_from_manifest(
+                manifest,
+                source_runtime=restored_app.runtime,
+            )
+            restored = restored_app._tab_manager.get(tab_id)
+            assert restored is not None
+            assert restored.engine == "codex_sidecar"
+            assert restored.runtime.thread_id == thread_id
 
     async def test_codex_sidecar_manifest_resume_failure_records_partial_notice(self):
         from cli.agent_cli.runtime_kernels.codex_sidecar.errors import CodexSidecarRequestError
@@ -3056,13 +3150,13 @@ class TestForkTab(unittest.IsolatedAsyncioTestCase):
         app = AgentCliApp(runtime=self._make_runtime())
         async with app.run_test() as pilot:
             await pilot.pause()
-            for _ in range(7):
+            for _ in range(app._tab_manager.MAX_TABS - 1):
                 app.action_new_tab()
                 await pilot.pause()
-            assert len(app._tab_manager._tabs) == 8
+            assert len(app._tab_manager._tabs) == app._tab_manager.MAX_TABS
             result = app._tab_manager.fork_tab("main")
             assert result == ""
-            assert len(app._tab_manager._tabs) == 8
+            assert len(app._tab_manager._tabs) == app._tab_manager.MAX_TABS
 
     async def test_fork_metadata_persists_through_manifest_restore(self):
         with tempfile.TemporaryDirectory() as temp_dir:
