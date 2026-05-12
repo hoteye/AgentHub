@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from functools import lru_cache
 import os
-from pathlib import Path
 import platform as py_platform
 import shutil
 import sys
+from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -85,12 +85,19 @@ class HostPlatform:
             return None
         candidate = Path(raw)
         if candidate.is_file():
-            return str(candidate)
+            return self._shell_path_for_platform(raw)
         return None
+
+    def _shell_path_for_platform(self, raw: str) -> str:
+        if self.os != "windows" and raw.startswith("/"):
+            return raw
+        return str(Path(raw))
 
     def resolve_shell_program(self, shell: str | None = None) -> str:
         raw = str(shell or "").strip()
         if not raw:
+            if self.os == "windows":
+                return self.shell_program
             default_user_shell = self._default_runtime_shell_program()
             if default_user_shell:
                 return default_user_shell
@@ -100,7 +107,7 @@ class HostPlatform:
             return self._ultimate_shell_program()
         explicit_path = Path(raw)
         if explicit_path.is_file():
-            return str(explicit_path)
+            return self._shell_path_for_platform(raw)
         default_user_shell = self._default_user_shell_program(shell_name)
         if default_user_shell:
             return default_user_shell
@@ -110,7 +117,7 @@ class HostPlatform:
                 return found
             candidate_path = Path(candidate)
             if candidate_path.is_file():
-                return str(candidate_path)
+                return self._shell_path_for_platform(candidate)
         return self._ultimate_shell_program()
 
     def _default_runtime_shell_program(self) -> str | None:
@@ -127,7 +134,7 @@ class HostPlatform:
                 return found
             candidate_path = Path(candidate)
             if candidate_path.is_file():
-                return str(candidate_path)
+                return self._shell_path_for_platform(candidate)
         return None
 
     def normalize_shell_override(self, shell: str | None = None) -> str | None:

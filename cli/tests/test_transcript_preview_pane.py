@@ -148,6 +148,18 @@ def test_preview_command_for_file_prefers_readonly_nvim(tmp_path) -> None:
     )
 
 
+def test_preview_command_for_markdown_prefers_glow(tmp_path) -> None:
+    file_path = tmp_path / "README.md"
+    file_path.write_text("# hello\n", encoding="utf-8")
+
+    command = preview_command_for_target(
+        PreviewTarget(kind="file", value=str(file_path), line_number=3),
+        opener_lookup=lambda name: "/usr/bin/glow" if name == "glow" else None,
+    )
+
+    assert command == ("/usr/bin/glow", "--style", "dark", "--", str(file_path))
+
+
 def test_preview_command_for_file_enables_vim_mouse_without_line(tmp_path) -> None:
     file_path = tmp_path / "README.md"
     file_path.write_text("hello\n", encoding="utf-8")

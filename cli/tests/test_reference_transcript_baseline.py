@@ -744,14 +744,23 @@ def test_render_transcript_visual_entries_uses_reference_plain_markdown_layout()
 
     assert rendered.lines == [
         "• # Title",
-        "  ",
-        "  - one",
-        "  - two",
-        "  ",
-        "  print('hi')",
+        "",
+        "- one",
+        "- two",
+        "",
+        "print('hi')",
     ]
     assert all("```" not in line for line in rendered.lines)
     assert all(not any(ch in line for ch in "┏┗┃━") for line in rendered.lines)
+
+
+def test_render_transcript_visual_entries_does_not_indent_markdown_paragraphs() -> None:
+    rendered: RenderedTranscript = render_transcript_visual_entries(
+        [assistant_message_entry("first paragraph\n\nsecond paragraph")],
+        width=48,
+    )
+
+    assert rendered.lines == ["• first paragraph", "", "second paragraph"]
 
 
 def test_render_transcript_visual_entries_trim_leading_markdown_blank_lines() -> None:

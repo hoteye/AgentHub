@@ -1,30 +1,32 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from rich.cells import cell_len
 from rich.console import Console
 from rich.style import Style as RichStyle
 
 from cli.agent_cli.ui.markdown_render import render_markdown_visual_lines
 from cli.agent_cli.ui.theme import (
-    TRANSCRIPT_CONTINUATION_PREFIX,
     TRANSCRIPT_MESSAGE_PREFIX,
-    TRANSCRIPT_USER_PREFIX,
     ThemeStyles,
 )
 from cli.agent_cli.ui.transcript_visual_rendering_helpers import (
     markdown_base_style,
     markdown_line_styles,
     markdown_prefix_style,
-    markdown_semantic_style,
     normalized_completion_stamp_line,
     plain_line_styles,
     prefix_rendered_lines,
     wrap_prefixed_text,
 )
 
+if TYPE_CHECKING:
+    from cli.agent_cli.ui.transcript_history import TranscriptEntry
+
 
 def visual_lines_for_entry(
-    entry: "TranscriptEntry",
+    entry: TranscriptEntry,
     *,
     width: int,
     console: Console | None,
@@ -56,7 +58,7 @@ def visual_lines_for_entry(
 
 
 def render_markdown_entry_lines(
-    entry: "TranscriptEntry",
+    entry: TranscriptEntry,
     *,
     width: int,
     console: Console | None,
@@ -81,7 +83,7 @@ def render_markdown_entry_lines(
     prefixed_lines = prefix_rendered_lines(
         visible_lines,
         first_prefix=TRANSCRIPT_MESSAGE_PREFIX,
-        continuation_prefix=TRANSCRIPT_CONTINUATION_PREFIX,
+        continuation_prefix="",
         prefix_style=markdown_prefix_style(entry, styles=styles),
     )
     rendered: list[tuple[str, list[tuple[int, int, RichStyle]]]] = []
@@ -100,7 +102,7 @@ def render_markdown_entry_lines(
 
 
 def render_tool_command_entry_lines(
-    entry: "TranscriptEntry",
+    entry: TranscriptEntry,
     *,
     width: int,
     styles: ThemeStyles,
@@ -110,7 +112,9 @@ def render_tool_command_entry_lines(
         return []
     header_line = str(visible_lines[0] or "")
     prefix = "• Running " if header_line.startswith("• Running ") else "• Ran "
-    command_lines = [header_line[len(prefix):]] if header_line.startswith(prefix) else [header_line]
+    command_lines = (
+        [header_line[len(prefix) :]] if header_line.startswith(prefix) else [header_line]
+    )
     output_lines: list[str] = []
     for raw_line in visible_lines[1:]:
         line = str(raw_line or "")
@@ -150,7 +154,7 @@ def render_tool_command_entry_lines(
 
 
 def render_tool_mcp_entry_lines(
-    entry: "TranscriptEntry",
+    entry: TranscriptEntry,
     *,
     width: int,
     styles: ThemeStyles,
@@ -205,7 +209,7 @@ def render_tool_mcp_entry_lines(
 
 
 def render_web_search_entry_lines(
-    entry: "TranscriptEntry",
+    entry: TranscriptEntry,
     *,
     width: int,
     styles: ThemeStyles,
@@ -263,7 +267,7 @@ def render_web_search_entry_lines(
 
 
 def render_todo_list_entry_lines(
-    entry: "TranscriptEntry",
+    entry: TranscriptEntry,
     *,
     width: int,
     styles: ThemeStyles,
@@ -286,10 +290,14 @@ def render_todo_list_entry_lines(
             )
             continue
         if line_text.startswith("  └ "):
-            rendered_lines.extend(_wrap_todo_body_line(line_text[4:], width=width, branch_prefix="  └ "))
+            rendered_lines.extend(
+                _wrap_todo_body_line(line_text[4:], width=width, branch_prefix="  └ ")
+            )
             continue
         if line_text.startswith("    "):
-            rendered_lines.extend(_wrap_todo_body_line(line_text[4:], width=width, branch_prefix="    "))
+            rendered_lines.extend(
+                _wrap_todo_body_line(line_text[4:], width=width, branch_prefix="    ")
+            )
             continue
         rendered_lines.extend(
             wrap_prefixed_text(
@@ -311,7 +319,7 @@ def _wrap_todo_body_line(text: str, *, width: int, branch_prefix: str) -> list[s
     for marker in ("✔ ", "□ "):
         if body_text.startswith(marker):
             return wrap_prefixed_text(
-                body_text[len(marker):],
+                body_text[len(marker) :],
                 first_prefix=f"{branch_prefix}{marker}",
                 continuation_prefix=" " * (len(branch_prefix) + len(marker)),
                 width=width,
@@ -326,7 +334,7 @@ def _wrap_todo_body_line(text: str, *, width: int, branch_prefix: str) -> list[s
 
 
 def render_separator_entry_lines(
-    entry: "TranscriptEntry",
+    entry: TranscriptEntry,
     *,
     width: int,
     styles: ThemeStyles,

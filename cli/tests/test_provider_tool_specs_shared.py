@@ -336,7 +336,8 @@ def test_planner_guidance_prefers_canonical_file_tools() -> None:
         in openai_planner.system_prompt
     )
     assert (
-        "python version -> /exec_command 'python3 -V' --workdir ." in openai_planner.system_prompt
+        f"python version -> /exec_command '{host_platform.python_version_command}' --workdir ."
+        in openai_planner.system_prompt
     )
     assert "/shell pwd" not in openai_planner.system_prompt
     assert "prefer /file_list, /file_search, and /file_read" not in openai_planner.system_prompt

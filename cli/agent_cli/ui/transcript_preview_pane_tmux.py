@@ -209,7 +209,27 @@ def _split_preview_pane(
     if int(getattr(completed, "returncode", 1) or 0) != 0:
         return ""
     output_lines = str(getattr(completed, "stdout", "") or "").strip().splitlines()
-    return output_lines[-1].strip() if output_lines else ""
+    new_pane = output_lines[-1].strip() if output_lines else ""
+    if new_pane:
+        border_bg = os.environ.get("AGENTHUB_TMUX_PANE_BORDER_BG") or "#11161c"
+        for target in (new_pane, tui_pane or new_pane):
+            run(
+                ["tmux", "set-option", "-w", "-t", target, "pane-border-style", f"fg={border_bg}"],
+                check=False,
+            )
+            run(
+                [
+                    "tmux",
+                    "set-option",
+                    "-w",
+                    "-t",
+                    target,
+                    "pane-active-border-style",
+                    f"fg={border_bg}",
+                ],
+                check=False,
+            )
+    return new_pane
 
 
 def tmux_preview_ready_shell_command(*, shell: str | None = None) -> str:
@@ -351,6 +371,14 @@ def preview_command_for_target(
         return ()
     if target.kind != "file":
         return ()
+    file_lower = target.value.lower()
+    if file_lower.endswith(".md") or file_lower.endswith(".markdown"):
+        resolved_glow = opener_lookup("glow")
+        if resolved_glow:
+            return (resolved_glow, "--style", "dark", "--", target.value)
+        resolved_mdcat = opener_lookup("mdcat")
+        if resolved_mdcat:
+            return (resolved_mdcat, "--", target.value)
     line_arg = f"+{target.line_number}" if target.line_number else None
     for opener in ("nvim", "vim"):
         resolved = opener_lookup(opener)

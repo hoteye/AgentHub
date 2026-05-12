@@ -32,6 +32,8 @@ on:
 
 jobs:
   build:
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -63,6 +65,8 @@ jobs:
         run: ../scripts/ci_check.sh
 
       - name: Prepare Codex sidecar runtime
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: >
           python cli/scripts/prepare_codex_sidecar_runtime.py
           --tag "${{ env.CODEX_SIDECAR_RELEASE_TAG }}"

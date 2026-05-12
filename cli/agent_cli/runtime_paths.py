@@ -4,7 +4,6 @@ import os
 import sys
 from pathlib import Path
 
-
 PROJECT_ROOT_ENV = "AGENTHUB_PROJECT_ROOT"
 AGENT_CLI_HOME_ENV = "AGENT_CLI_HOME"
 DEFAULT_AGENT_CLI_HOME_DIRNAME = ".agent_cli"
@@ -35,7 +34,15 @@ def agent_cli_home() -> Path:
     configured = str(os.environ.get(AGENT_CLI_HOME_ENV) or "").strip()
     if configured:
         return _safe_resolve(Path(configured))
-    return _safe_resolve(Path.home() / DEFAULT_AGENT_CLI_HOME_DIRNAME)
+    try:
+        home = Path.home()
+    except RuntimeError:
+        fallback_home = str(os.environ.get("HOME") or "").strip()
+        if fallback_home:
+            home = Path(fallback_home)
+        else:
+            raise
+    return _safe_resolve(home / DEFAULT_AGENT_CLI_HOME_DIRNAME)
 
 
 def runtime_project_root() -> Path:

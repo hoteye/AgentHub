@@ -29,6 +29,13 @@ class ReleaseWorkflowDependenciesTest(unittest.TestCase):
         install_run = str(steps["Install runtime dependencies"].get("run") or "")
         self.assertIn("python -m pip install -r requirements-dev.txt", install_run)
 
+    def test_cli_release_workflow_authenticates_codex_runtime_downloads(self) -> None:
+        steps = _steps(_workflow("release-executables.yml"), "build")
+
+        self.assertIn("Prepare Codex sidecar runtime", steps)
+        env = dict(steps["Prepare Codex sidecar runtime"].get("env") or {})
+        self.assertEqual(env.get("GITHUB_TOKEN"), "${{ github.token }}")
+
     def test_gui_release_workflow_installs_pytest_dependencies(self) -> None:
         steps = _steps(_workflow("release-gui-desktop.yml"), "build")
 

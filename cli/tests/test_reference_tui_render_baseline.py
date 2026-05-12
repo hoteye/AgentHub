@@ -289,9 +289,9 @@ class ReferenceTuiRenderBaselineTest(unittest.IsolatedAsyncioTestCase):
             rendered.lines,
             [
                 "•     -- Indented code block (4 spaces)",
-                "      SELECT *",
-                "  ",
-                "  printf 'hi\\n'",
+                "    SELECT *",
+                "",
+                "printf 'hi\\n'",
             ],
         )
 
@@ -318,8 +318,8 @@ class ReferenceTuiRenderBaselineTest(unittest.IsolatedAsyncioTestCase):
             rendered.lines,
             [
                 "• # note",
-                "  if count == 1:",
-                '      return "hi"',
+                "if count == 1:",
+                '    return "hi"',
             ],
         )
 
@@ -329,7 +329,7 @@ class ReferenceTuiRenderBaselineTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn(
             (2, len(comment_line), MARKDOWN_SYNTAX_COMMENT_STYLE), rendered.line_styles[0]
         )
-        self.assertIn((2, 4, MARKDOWN_SYNTAX_KEYWORD_STYLE), rendered.line_styles[1])
+        self.assertIn((0, 2, MARKDOWN_SYNTAX_KEYWORD_STYLE), rendered.line_styles[1])
 
         string_start = string_line.index('"hi"')
         self.assertIn(
@@ -373,12 +373,12 @@ class ReferenceTuiRenderBaselineTest(unittest.IsolatedAsyncioTestCase):
             rendered.lines,
             [
                 "• # 标题",
-                "  ",
-                "  > 引用",
-                "  ",
-                "  1. one",
-                "  ",
-                "  italic docs (https://a.com)",
+                "",
+                "> 引用",
+                "",
+                "1. one",
+                "",
+                "italic docs (https://a.com)",
             ],
         )
 
@@ -387,8 +387,8 @@ class ReferenceTuiRenderBaselineTest(unittest.IsolatedAsyncioTestCase):
         inline_line = rendered.lines[6]
 
         self.assertIn((2, len(heading_line), MARKDOWN_H1_STYLE), rendered.line_styles[0])
-        self.assertIn((2, len(quote_line), MARKDOWN_BLOCKQUOTE_STYLE), rendered.line_styles[2])
-        self.assertIn((2, 5, MARKDOWN_ORDERED_LIST_MARKER_STYLE), rendered.line_styles[4])
+        self.assertIn((0, len(quote_line), MARKDOWN_BLOCKQUOTE_STYLE), rendered.line_styles[2])
+        self.assertIn((0, 3, MARKDOWN_ORDERED_LIST_MARKER_STYLE), rendered.line_styles[4])
 
         italic_start = inline_line.index("italic")
         href_start = inline_line.index("https://a.com")
@@ -459,8 +459,8 @@ class ReferenceTuiRenderBaselineTest(unittest.IsolatedAsyncioTestCase):
             rendered_text = main_log.text
 
             self.assertIn("• # Title", rendered_text)
-            self.assertIn("  - one", rendered_text)
-            self.assertIn("  print('hi')", rendered_text)
+            self.assertIn("- one", rendered_text)
+            self.assertIn("print('hi')", rendered_text)
             self.assertNotIn("```", rendered_text)
             self.assertFalse(any(ch in rendered_text for ch in "┏┗┃━"))
 

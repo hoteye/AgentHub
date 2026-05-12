@@ -8,6 +8,16 @@ The format is based on Keep a Changelog, with one release section per published 
 
 No unreleased changes yet.
 
+## [0.1.6] - 2026-05-12
+
+### Fixed
+
+- Fixed the executable release workflow so Codex sidecar runtime downloads use the GitHub Actions token and avoid unauthenticated API rate limits.
+- Fixed Windows release CI portability by keeping the default shell on PowerShell, preserving simulated POSIX shell paths in tests, and falling back to `HOME` when a frozen runtime has no platform home profile.
+- Fixed transcript markdown rendering so continuation lines are not indented under the assistant bullet.
+- Fixed revived tmux preview panes so pane borders stay hidden after the preview pane is recreated.
+- Improved split-pane Markdown preview by preferring terminal Markdown renderers before opening Markdown files in an editor.
+
 ## [0.1.5] - 2026-05-12
 
 ### Added
