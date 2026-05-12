@@ -61,6 +61,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install -r cli/requirements.txt
+          python -m pip install -r requirements-dev.txt
 
       - name: Enforce file-size guard
         run: >
@@ -124,6 +125,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install -r cli/requirements.txt
+          python -m pip install -r requirements-dev.txt
 
       - name: Run clipboard platform-selection tests
         working-directory: cli
@@ -166,6 +168,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install -r cli/requirements.txt
+          python -m pip install -r requirements-dev.txt
 
       - name: Run headless baseline
         working-directory: cli
@@ -197,6 +200,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install -r cli/requirements.txt
+          python -m pip install -r requirements-dev.txt
 
       - name: Run platform tool regressions
         working-directory: cli

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
 
 from cli.agent_cli.models import (
     AgentIntent,
@@ -15,19 +16,19 @@ from cli.agent_cli.providers.planner_postprocessing import (
     structured_tool_fallback_text,
 )
 
-PlannerToolExecutor = Callable[[str], Tuple[str, List[ToolEvent]]]
+PlannerToolExecutor = Callable[[str], tuple[str, list[ToolEvent]]]
 
 
 def plan(
     planner: Any,
     user_text: str,
-    history: List[Dict[str, str]],
+    history: list[dict[str, str]],
     *,
-    tool_executor: Optional[PlannerToolExecutor] = None,
-    attachments: Optional[List[PromptAttachment]] = None,
-    input_items: Optional[List[Dict[str, Any]]] = None,
-    prompt_cache_key: Optional[str] = None,
-    turn_event_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+    tool_executor: PlannerToolExecutor | None = None,
+    attachments: list[PromptAttachment] | None = None,
+    input_items: list[dict[str, Any]] | None = None,
+    prompt_cache_key: str | None = None,
+    turn_event_callback: Callable[[dict[str, Any]], None] | None = None,
     responses_session_cls: Callable[..., Any],
     turn_engine_cls: Callable[..., Any],
 ) -> AgentIntent:
@@ -57,10 +58,10 @@ def plan(
 
     def _followup_handler(
         followup_user_text: str,
-        executed_events: List[ToolEvent],
-        executed_item_events: Optional[List[Dict[str, Any]]] = None,
-        previous_response_id: Optional[str] = None,
-        continuation_input_items: Optional[List[Dict[str, Any]]] = None,
+        executed_events: list[ToolEvent],
+        executed_item_events: list[dict[str, Any]] | None = None,
+        previous_response_id: str | None = None,
+        continuation_input_items: list[dict[str, Any]] | None = None,
     ) -> AgentIntent:
         if continuation_input_items:
             try:
@@ -101,10 +102,10 @@ def plan(
 
     def _terminal_handler(
         followup_user_text: str,
-        executed_events: List[ToolEvent],
-        executed_item_events: Optional[List[Dict[str, Any]]] = None,
-        _previous_response_id: Optional[str] = None,
-        _continuation_input_items: Optional[List[Dict[str, Any]]] = None,
+        executed_events: list[ToolEvent],
+        executed_item_events: list[dict[str, Any]] | None = None,
+        _previous_response_id: str | None = None,
+        _continuation_input_items: list[dict[str, Any]] | None = None,
     ) -> AgentIntent:
         try:
             return planner._fresh_synthesis_after_tool_loop(
@@ -150,9 +151,7 @@ def plan(
         assistant_text = sanitize_final_answer_text(response_items_text)
     final_response_items = list(response_items_list)
     turn_events = [
-        dict(item)
-        for item in list(raw_intent.turn_events or [])
-        if isinstance(item, dict)
+        dict(item) for item in list(raw_intent.turn_events or []) if isinstance(item, dict)
     ]
     tool_item_events = planner._tool_item_events_from_turn_events(turn_events)
     response_has_text = bool(response_items_text.strip())
@@ -169,14 +168,19 @@ def plan(
                 executed_item_events=tool_item_events,
                 attachments=attachments,
             )
-            synthesized_text = sanitize_final_answer_text(str(synthesized.assistant_text or "").strip())
+            synthesized_text = sanitize_final_answer_text(
+                str(synthesized.assistant_text or "").strip()
+            )
             if not synthesized_text and synthesized.response_items:
                 synthesized_text = sanitize_final_answer_text(
                     response_items_to_text(list(synthesized.response_items or []))
                 )
             if synthesized_text:
                 assistant_text = synthesized_text
-                response_items = list(synthesized.response_items or default_response_items(assistant_text=assistant_text))
+                response_items = list(
+                    synthesized.response_items
+                    or default_response_items(assistant_text=assistant_text)
+                )
                 final_response_items = response_items
                 if synthesized.turn_events:
                     turn_events = [
@@ -220,10 +224,10 @@ def plan(
 def plan_without_native_tools(
     planner: Any,
     user_text: str,
-    history: List[Dict[str, str]],
+    history: list[dict[str, str]],
     *,
-    attachments: Optional[List[PromptAttachment]] = None,
-    input_items: Optional[List[Dict[str, Any]]] = None,
+    attachments: list[PromptAttachment] | None = None,
+    input_items: list[dict[str, Any]] | None = None,
 ) -> AgentIntent:
     started_at = time.perf_counter()
     messages = planner._conversation_input_items(
@@ -232,7 +236,7 @@ def plan_without_native_tools(
         attachments=attachments,
         input_items=input_items,
     )
-    kwargs: Dict[str, Any] = {
+    kwargs: dict[str, Any] = {
         "model": planner.config.model,
         "instructions": planner.system_prompt,
         "input": messages,

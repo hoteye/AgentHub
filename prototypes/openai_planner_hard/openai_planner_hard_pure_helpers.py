@@ -3,20 +3,22 @@ from __future__ import annotations
 import json
 import re
 import shlex
-from typing import Any, Callable, Dict, Optional, Pattern
+from collections.abc import Callable
+from re import Pattern
+from typing import Any
 
 from cli.agent_cli.models import AgentIntent, default_response_items
 from cli.agent_cli.providers.planner_postprocessing import sanitize_final_answer_text
 
 
-def message_input_item(role: str, content: str) -> Dict[str, Any]:
+def message_input_item(role: str, content: str) -> dict[str, Any]:
     return {
         "role": str(role or "user").strip() or "user",
         "content": str(content or ""),
     }
 
 
-def extract_json_payload(raw_text: str) -> Optional[Dict[str, Any]]:
+def extract_json_payload(raw_text: str) -> dict[str, Any] | None:
     text = str(raw_text or "").strip()
     if not text:
         return None
@@ -55,11 +57,11 @@ def optional_bool(value: Any, default: bool = False) -> bool:
 
 
 def normalize_command_text(
-    command_text: Optional[str],
+    command_text: str | None,
     *,
     followup_command_pattern: Pattern[str],
     host_platform: Any,
-) -> Optional[str]:
+) -> str | None:
     if command_text is None:
         return None
     compact = " ".join(str(command_text).strip().split())
@@ -80,8 +82,8 @@ def extract_command_text(
     raw_text: str,
     *,
     command_pattern: Pattern[str],
-    normalize_command_text_fn: Callable[[Optional[str]], Optional[str]],
-) -> Optional[str]:
+    normalize_command_text_fn: Callable[[str | None], str | None],
+) -> str | None:
     match = command_pattern.search(str(raw_text or ""))
     if not match:
         return None
@@ -91,19 +93,23 @@ def extract_command_text(
 def intent_from_raw_text(
     raw_text: str,
     *,
-    extract_json_payload_fn: Callable[[str], Optional[Dict[str, Any]]],
-    normalize_command_text_fn: Callable[[Optional[str]], Optional[str]],
-    extract_command_text_fn: Callable[[str], Optional[str]],
+    extract_json_payload_fn: Callable[[str], dict[str, Any] | None],
+    normalize_command_text_fn: Callable[[str | None], str | None],
+    extract_command_text_fn: Callable[[str], str | None],
     command_pattern: Pattern[str],
     allow_command_pattern_fallback: bool = True,
 ) -> AgentIntent:
     payload = extract_json_payload_fn(raw_text)
     if payload is not None:
         command_text = normalize_command_text_fn(payload.get("command_text"))
-        assistant_text = sanitize_final_answer_text(str(payload.get("assistant_text") or "").strip())
+        assistant_text = sanitize_final_answer_text(
+            str(payload.get("assistant_text") or "").strip()
+        )
         if not assistant_text and not command_text:
             assistant_text = "模型未返回内容。"
-        status_hint = str(payload.get("status_hint") or ("tool" if command_text else "llm")).strip() or "llm"
+        status_hint = (
+            str(payload.get("status_hint") or ("tool" if command_text else "llm")).strip() or "llm"
+        )
         return AgentIntent(
             assistant_text=assistant_text,
             response_items=default_response_items(assistant_text=assistant_text),
@@ -115,7 +121,9 @@ def intent_from_raw_text(
     if not allow_command_pattern_fallback:
         return AgentIntent(
             assistant_text=assistant_text or "模型未返回内容。",
-            response_items=default_response_items(assistant_text=assistant_text or "模型未返回内容。"),
+            response_items=default_response_items(
+                assistant_text=assistant_text or "模型未返回内容。"
+            ),
             command_text=None,
             status_hint="llm",
         )

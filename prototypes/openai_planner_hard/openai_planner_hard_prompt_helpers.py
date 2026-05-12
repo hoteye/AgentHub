@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional
+from collections.abc import Callable
+from typing import Any
 
 from cli.agent_cli.host_platform import HostPlatform
 from cli.agent_cli.providers.config_catalog import ProviderConfig
@@ -15,12 +16,12 @@ def planner_init_state(
     *,
     config: ProviderConfig,
     host_platform: HostPlatform,
-    plugin_manager_factory: Optional[Callable[[], Any]],
+    plugin_manager_factory: Callable[[], Any] | None,
     command_text_patterns_fn: Callable[..., Any],
     provider_tool_names_fn: Callable[..., Any],
     minimal_provider_tool_names_fn: Callable[..., Any],
     plugin_prompt_addendum_fn: Callable[..., str],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     command_pattern, followup_command_pattern = command_text_patterns_fn(
         config,
         host_platform,
@@ -110,7 +111,9 @@ def planner_init_state(
     )
     native_tool_system_prompt = native_shared_prompt
     if available_tool_names:
-        tool_name_prompt = f" Available structured tool/command names in this session: {available_tool_names}."
+        tool_name_prompt = (
+            f" Available structured tool/command names in this session: {available_tool_names}."
+        )
         system_prompt += tool_name_prompt
     if native_available_tool_names:
         native_tool_name_prompt = (

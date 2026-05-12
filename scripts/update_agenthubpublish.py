@@ -56,6 +56,7 @@ EXCLUDED_SUFFIXES = {
     ".sqlite3",
 }
 EXCLUDED_RELATIVE_PATHS = {
+    Path(".github/workflows/governance-guards.yml"),
     Path("plugins/psbc_policy"),
     Path("runtime/codex"),
 }

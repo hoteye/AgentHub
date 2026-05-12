@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
 
 from cli.agent_cli.models import (
     CommandExecutionResult,
@@ -10,10 +11,10 @@ from cli.agent_cli.models import (
     tool_events_to_turn_events,
 )
 
-PlannerToolExecutor = Callable[[str], Tuple[str, List[ToolEvent]]]
+PlannerToolExecutor = Callable[[str], tuple[str, list[ToolEvent]]]
 
 
-def next_item_index(events: List[Dict[str, Any]]) -> int:
+def next_item_index(events: list[dict[str, Any]]) -> int:
     highest = -1
     for event in list(events or []):
         if not isinstance(event, dict):
@@ -31,10 +32,10 @@ def next_item_index(events: List[Dict[str, Any]]) -> int:
     return highest + 1
 
 
-def rebase_item_events(events: List[Dict[str, Any]], *, start_index: int) -> List[Dict[str, Any]]:
-    mapping: Dict[str, str] = {}
+def rebase_item_events(events: list[dict[str, Any]], *, start_index: int) -> list[dict[str, Any]]:
+    mapping: dict[str, str] = {}
     next_index = int(start_index)
-    rebased: List[Dict[str, Any]] = []
+    rebased: list[dict[str, Any]] = []
     for event in list(events or []):
         if not isinstance(event, dict):
             continue
@@ -60,25 +61,23 @@ def rebase_item_events(events: List[Dict[str, Any]], *, start_index: int) -> Lis
 def compose_turn_events(
     *,
     assistant_text: str,
-    response_items: List[Any],
-    executed_item_events: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
+    response_items: list[Any],
+    executed_item_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     return compose_turn_events_from_response_items(
         assistant_text=assistant_text,
         response_items=list(response_items or []),
         executed_item_events=[
-            dict(item)
-            for item in list(executed_item_events or [])
-            if isinstance(item, dict)
+            dict(item) for item in list(executed_item_events or []) if isinstance(item, dict)
         ],
     )
 
 
 def rewrite_existing_turn_events(
-    existing_turn_events: List[Dict[str, Any]],
+    existing_turn_events: list[dict[str, Any]],
     *,
     final_text: str,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     normalized = [dict(item) for item in list(existing_turn_events or []) if isinstance(item, dict)]
     if not normalized:
         return []
@@ -135,19 +134,20 @@ def rewrite_existing_turn_events(
 def canonical_turn_events(
     *,
     assistant_text: str,
-    response_items: List[Any],
-    executed_item_events: List[Dict[str, Any]],
-    existing_turn_events: Optional[List[Dict[str, Any]]] = None,
-    rewrite_existing_turn_events_fn: Callable[..., List[Dict[str, Any]]],
-    compose_turn_events_fn: Callable[..., List[Dict[str, Any]]],
-) -> List[Dict[str, Any]]:
+    response_items: list[Any],
+    executed_item_events: list[dict[str, Any]],
+    existing_turn_events: list[dict[str, Any]] | None = None,
+    rewrite_existing_turn_events_fn: Callable[..., list[dict[str, Any]]],
+    compose_turn_events_fn: Callable[..., list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
     normalized_existing = [
-        dict(item)
-        for item in list(existing_turn_events or [])
-        if isinstance(item, dict)
+        dict(item) for item in list(existing_turn_events or []) if isinstance(item, dict)
     ]
     if normalized_existing:
-        final_text = response_items_to_text(list(response_items or [])).strip() or str(assistant_text or "").strip()
+        final_text = (
+            response_items_to_text(list(response_items or [])).strip()
+            or str(assistant_text or "").strip()
+        )
         return rewrite_existing_turn_events_fn(normalized_existing, final_text=final_text)
     return compose_turn_events_fn(
         assistant_text=assistant_text,
@@ -156,9 +156,9 @@ def canonical_turn_events(
     )
 
 
-def tool_item_events_from_turn_events(turn_events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def tool_item_events_from_turn_events(turn_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     tool_item_types = {"command_execution", "mcp_tool_call", "function_call_output"}
-    item_events: List[Dict[str, Any]] = []
+    item_events: list[dict[str, Any]] = []
     for raw_event in list(turn_events or []):
         if not isinstance(raw_event, dict):
             continue
@@ -171,7 +171,9 @@ def tool_item_events_from_turn_events(turn_events: List[Dict[str, Any]]) -> List
     return item_events
 
 
-def execute_tool_result(tool_executor: PlannerToolExecutor, command_text: str) -> CommandExecutionResult:
+def execute_tool_result(
+    tool_executor: PlannerToolExecutor, command_text: str
+) -> CommandExecutionResult:
     structured_runner = getattr(tool_executor, "run_structured", None)
     if callable(structured_runner):
         structured_result = structured_runner(command_text)
@@ -204,11 +206,11 @@ def execute_tool_result(tool_executor: PlannerToolExecutor, command_text: str) -
 
 
 def history_for_conversation(
-    history: List[Dict[str, str]],
+    history: list[dict[str, str]],
     *,
-    input_items: Optional[List[Dict[str, Any]]] = None,
-    input_items_have_assistant_turn_fn: Callable[[Optional[List[Dict[str, Any]]]], bool],
-) -> List[Dict[str, str]]:
+    input_items: list[dict[str, Any]] | None = None,
+    input_items_have_assistant_turn_fn: Callable[[list[dict[str, Any]] | None], bool],
+) -> list[dict[str, str]]:
     # Structured turn-item path should be the canonical conversation carrier.
     # If input_items already include assistant turns, avoid re-appending legacy history.
     if input_items_have_assistant_turn_fn(input_items):

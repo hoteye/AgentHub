@@ -1,15 +1,16 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 from cli.agent_cli.models import ToolEvent
 from cli.agent_cli.providers.planner_postprocessing import sanitize_final_answer_text
 from cli.agent_cli.providers.tool_calls import tool_result_payload as _tool_result_payload_impl
 
 
-def response_function_calls(response: Any) -> List[Dict[str, Any]]:
-    calls: List[Dict[str, Any]] = []
+def response_function_calls(response: Any) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
     for item in list(getattr(response, "output", []) or []):
         if str(getattr(item, "type", "")).strip() != "function_call":
             continue
@@ -40,12 +41,14 @@ def response_output_text(
 
 def tool_output_item(
     call_id: str,
-    command_text: Optional[str],
+    command_text: str | None,
     assistant_text: str,
-    events: List[ToolEvent],
+    events: list[ToolEvent],
     *,
-    tool_result_payload_fn: Callable[[Optional[str], str, List[ToolEvent]], Dict[str, Any]] = _tool_result_payload_impl,
-) -> Dict[str, Any]:
+    tool_result_payload_fn: Callable[
+        [str | None, str, list[ToolEvent]], dict[str, Any]
+    ] = _tool_result_payload_impl,
+) -> dict[str, Any]:
     return {
         "type": "function_call_output",
         "call_id": call_id,

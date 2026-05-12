@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict
+from collections.abc import Callable
+from typing import Any
 
 
 def log_responses_request(
     stage: str,
-    kwargs: Dict[str, Any],
+    kwargs: dict[str, Any],
     *,
     timeline_debug_enabled_fn: Callable[[], bool],
     log_timeline_fn: Callable[..., None],
@@ -19,7 +20,9 @@ def log_responses_request(
         f"{stage}.request_raw",
         request=json_ready_fn(payload),
         input_count=len(list(input_items or [])) if isinstance(input_items, list) else None,
-        tool_count=len(list(payload.get("tools") or [])) if isinstance(payload.get("tools"), list) else 0,
+        tool_count=(
+            len(list(payload.get("tools") or [])) if isinstance(payload.get("tools"), list) else 0
+        ),
         stream=bool(payload.get("stream")),
         previous_response_id=payload.get("previous_response_id"),
     )

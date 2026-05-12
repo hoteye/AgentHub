@@ -8,7 +8,9 @@ import yaml
 
 class CliWorkflowGuardSetupTest(unittest.TestCase):
     def test_modularity_guards_job_keeps_python_and_install_contract(self) -> None:
-        workflow_path = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "cli-cross-platform.yml"
+        workflow_path = (
+            Path(__file__).resolve().parents[2] / ".github" / "workflows" / "cli-cross-platform.yml"
+        )
         payload = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
 
         jobs = dict(payload.get("jobs") or {})
@@ -29,4 +31,4 @@ class CliWorkflowGuardSetupTest(unittest.TestCase):
         self.assertIn("python -m pip install --upgrade pip", install_run)
         self.assertIn("python -m pip install -r requirements.txt", install_run)
         self.assertIn("python -m pip install -r cli/requirements.txt", install_run)
-
+        self.assertIn("python -m pip install -r requirements-dev.txt", install_run)

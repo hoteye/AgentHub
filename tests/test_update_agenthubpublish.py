@@ -63,3 +63,17 @@ def test_export_excludes_local_runtime_state(tmp_path: Path) -> None:
     assert ".agent_cli/state.json" not in copied
     assert "logs/agenthub.log" not in copied
     assert "runtime/codex/linux-x86_64/current/codex-app-server" not in copied
+
+
+def test_export_excludes_internal_governance_workflow(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    _touch(source / "cli" / "agent_cli" / "__init__.py")
+    _touch(source / ".github" / "workflows" / "governance-guards.yml")
+    _touch(source / ".github" / "workflows" / "release-executables.yml")
+
+    copied = {
+        relative.as_posix() for _, relative in update_agenthubpublish.iter_candidate_files(source)
+    }
+
+    assert ".github/workflows/release-executables.yml" in copied
+    assert ".github/workflows/governance-guards.yml" not in copied

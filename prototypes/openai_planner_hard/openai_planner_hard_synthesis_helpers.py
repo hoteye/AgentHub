@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
 
 from cli.agent_cli.models import (
     AgentIntent,
@@ -20,23 +21,23 @@ from cli.agent_cli.providers.planner_postprocessing import (
     structured_tool_fallback_text,
 )
 
-PlannerToolExecutor = Callable[[str], Tuple[str, List[ToolEvent]]]
+PlannerToolExecutor = Callable[[str], tuple[str, list[ToolEvent]]]
 
 
 def fresh_synthesis_after_tool_loop(
     planner: Any,
     *,
     user_text: str,
-    executed_events: List[ToolEvent],
-    executed_item_events: Optional[List[Dict[str, Any]]] = None,
-    attachments: Optional[List[PromptAttachment]] = None,
+    executed_events: list[ToolEvent],
+    executed_item_events: list[dict[str, Any]] | None = None,
+    attachments: list[PromptAttachment] | None = None,
     call_with_provider_retries_fn: Callable[[Callable[[], Any]], Any],
-    extract_responses_message_items_fn: Callable[[Any], List[Any]],
-    log_responses_request_fn: Callable[[str, Dict[str, Any]], None],
+    extract_responses_message_items_fn: Callable[[Any], list[Any]],
+    log_responses_request_fn: Callable[[str, dict[str, Any]], None],
     log_responses_response_fn: Callable[[str, Any], None],
 ) -> AgentIntent:
     synthesis_started_at = time.perf_counter()
-    kwargs: Dict[str, Any] = {
+    kwargs: dict[str, Any] = {
         "model": planner.config.model,
         "instructions": planner.native_tool_system_prompt,
         "input": planner._synthesis_messages(
@@ -84,12 +85,12 @@ def merge_followup_synthesis_intent(
     planner: Any,
     *,
     synthesized: AgentIntent,
-    executed_events: List[ToolEvent],
+    executed_events: list[ToolEvent],
     started_at: float,
     model_ms: int,
     tool_execution_ms: int,
     rounds: int,
-    executed_item_events: Optional[List[Dict[str, Any]]] = None,
+    executed_item_events: list[dict[str, Any]] | None = None,
 ) -> AgentIntent:
     synthesized_timings = dict(synthesized.timings or {})
     response_items = list(
@@ -109,9 +110,11 @@ def merge_followup_synthesis_intent(
             existing_turn_events=list(synthesized.turn_events or []),
         ),
         timings={
-            "synthesis_model_ms": model_ms + int(synthesized_timings.get("synthesis_model_ms") or 0),
+            "synthesis_model_ms": model_ms
+            + int(synthesized_timings.get("synthesis_model_ms") or 0),
             "synthesis_rounds": rounds + int(synthesized_timings.get("synthesis_rounds") or 0),
-            "tool_execution_ms": tool_execution_ms + int(synthesized_timings.get("tool_execution_ms") or 0),
+            "tool_execution_ms": tool_execution_ms
+            + int(synthesized_timings.get("tool_execution_ms") or 0),
             "total_ms": int((time.perf_counter() - started_at) * 1000),
         },
     )
@@ -121,10 +124,10 @@ def tool_followup_messages(
     planner: Any,
     *,
     user_text: str,
-    executed_events: List[ToolEvent],
-    executed_item_events: Optional[List[Dict[str, Any]]] = None,
-    attachments: Optional[List[PromptAttachment]] = None,
-) -> List[Dict[str, Any]]:
+    executed_events: list[ToolEvent],
+    executed_item_events: list[dict[str, Any]] | None = None,
+    attachments: list[PromptAttachment] | None = None,
+) -> list[dict[str, Any]]:
     parts = [
         "ORIGINAL_USER_REQUEST:",
         user_text,
@@ -133,7 +136,9 @@ def tool_followup_messages(
         "\n".join(generic_tool_event_summary_lines(executed_events)) or "- no tool events",
         "",
         "VERIFIED_TOOL_RESULT_CONTEXT_JSON:",
-        json.dumps(generic_tool_event_context_blocks(executed_events), ensure_ascii=False, indent=2),
+        json.dumps(
+            generic_tool_event_context_blocks(executed_events), ensure_ascii=False, indent=2
+        ),
     ]
     item_blocks = executed_item_event_context_blocks(executed_item_events or [])
     if item_blocks:
@@ -167,13 +172,13 @@ def fresh_followup_after_tool_loop(
     planner: Any,
     *,
     user_text: str,
-    executed_events: List[ToolEvent],
+    executed_events: list[ToolEvent],
     tool_executor: PlannerToolExecutor,
-    executed_item_events: Optional[List[Dict[str, Any]]] = None,
-    attachments: Optional[List[PromptAttachment]] = None,
+    executed_item_events: list[dict[str, Any]] | None = None,
+    attachments: list[PromptAttachment] | None = None,
     call_with_provider_retries_fn: Callable[[Callable[[], Any]], Any],
-    extract_responses_message_items_fn: Callable[[Any], List[Any]],
-    log_responses_request_fn: Callable[[str, Dict[str, Any]], None],
+    extract_responses_message_items_fn: Callable[[Any], list[Any]],
+    log_responses_request_fn: Callable[[str, dict[str, Any]], None],
     log_responses_response_fn: Callable[[str, Any], None],
 ) -> AgentIntent:
     started_at = time.perf_counter()
@@ -181,13 +186,11 @@ def fresh_followup_after_tool_loop(
     tool_execution_ms = 0
     rounds = 0
     aggregated_item_events = [
-        dict(item)
-        for item in list(executed_item_events or [])
-        if isinstance(item, dict)
+        dict(item) for item in list(executed_item_events or []) if isinstance(item, dict)
     ]
     next_item_index = planner._next_item_index(aggregated_item_events)
     for _ in range(6):
-        kwargs: Dict[str, Any] = {
+        kwargs: dict[str, Any] = {
             "model": planner.config.model,
             "instructions": planner.native_tool_system_prompt,
             "input": planner._tool_followup_messages(
@@ -208,7 +211,9 @@ def fresh_followup_after_tool_loop(
 
         request_started_at = time.perf_counter()
         log_responses_request_fn("openai_planner.fresh_followup", kwargs)
-        response = call_with_provider_retries_fn(lambda: planner.client.responses.create(**kwargs))
+        response = call_with_provider_retries_fn(
+            lambda request_kwargs=kwargs: planner.client.responses.create(**request_kwargs)
+        )
         log_responses_response_fn("openai_planner.fresh_followup", response)
         model_ms += int((time.perf_counter() - request_started_at) * 1000)
         rounds += 1
@@ -222,13 +227,17 @@ def fresh_followup_after_tool_loop(
             if assistant_text:
                 return AgentIntent(
                     assistant_text=assistant_text,
-                    response_items=list(response_items or default_response_items(assistant_text=assistant_text)),
+                    response_items=list(
+                        response_items or default_response_items(assistant_text=assistant_text)
+                    ),
                     command_text=None,
                     status_hint="tool",
                     tool_events=executed_events,
                     turn_events=planner._compose_turn_events(
                         assistant_text=assistant_text,
-                        response_items=list(response_items or default_response_items(assistant_text=assistant_text)),
+                        response_items=list(
+                            response_items or default_response_items(assistant_text=assistant_text)
+                        ),
                         executed_item_events=aggregated_item_events,
                     ),
                     timings={
@@ -263,11 +272,7 @@ def fresh_followup_after_tool_loop(
             tool_execution_ms += int((time.perf_counter() - execution_started_at) * 1000)
             executed_events.extend(list(result.tool_events or []))
             rebased_item_events = planner._rebase_item_events(
-                [
-                    dict(item)
-                    for item in list(result.item_events or [])
-                    if isinstance(item, dict)
-                ],
+                [dict(item) for item in list(result.item_events or []) if isinstance(item, dict)],
                 start_index=next_item_index,
             )
             aggregated_item_events.extend(rebased_item_events)
@@ -293,14 +298,14 @@ def fresh_followup_after_tool_loop(
 def collect_stream_text(
     planner: Any,
     *,
-    kwargs: Dict[str, Any],
+    kwargs: dict[str, Any],
     call_with_provider_retries_fn: Callable[[Callable[[], Any]], Any],
-    log_responses_request_fn: Callable[[str, Dict[str, Any]], None],
+    log_responses_request_fn: Callable[[str, dict[str, Any]], None],
     log_responses_response_fn: Callable[[str, Any], None],
 ) -> str:
     log_responses_request_fn("openai_planner.collect_stream_text", kwargs)
     stream = call_with_provider_retries_fn(lambda: planner.client.responses.create(**kwargs))
-    text_parts: List[str] = []
+    text_parts: list[str] = []
     for event in stream:
         event_type = getattr(event, "type", "")
         if event_type == "response.output_text.delta":
@@ -324,10 +329,10 @@ def synthesis_messages(
     planner: Any,
     *,
     user_text: str,
-    executed_events: List[ToolEvent],
-    executed_item_events: Optional[List[Dict[str, Any]]] = None,
-    attachments: Optional[List[PromptAttachment]] = None,
-) -> List[Dict[str, Any]]:
+    executed_events: list[ToolEvent],
+    executed_item_events: list[dict[str, Any]] | None = None,
+    attachments: list[PromptAttachment] | None = None,
+) -> list[dict[str, Any]]:
     parts = [
         *GENERIC_SYNTHESIS_RULES,
         "",
@@ -338,7 +343,9 @@ def synthesis_messages(
         "\n".join(generic_tool_event_summary_lines(executed_events)) or "- no tool events",
         "",
         "TOOL_RESULT_CONTEXT_JSON:",
-        json.dumps(generic_tool_event_context_blocks(executed_events), ensure_ascii=False, indent=2),
+        json.dumps(
+            generic_tool_event_context_blocks(executed_events), ensure_ascii=False, indent=2
+        ),
     ]
     item_blocks = executed_item_event_context_blocks(executed_item_events or [])
     if item_blocks:
@@ -367,11 +374,11 @@ def resume_native_tool_followup(
     session: Any,
     user_text: str,
     tool_executor: PlannerToolExecutor,
-    executed_events: List[ToolEvent],
-    executed_item_events: Optional[List[Dict[str, Any]]] = None,
-    previous_response_id: Optional[str] = None,
-    continuation_input_items: Optional[List[Dict[str, Any]]] = None,
-    terminal_handler: Optional[Callable[..., AgentIntent]] = None,
+    executed_events: list[ToolEvent],
+    executed_item_events: list[dict[str, Any]] | None = None,
+    previous_response_id: str | None = None,
+    continuation_input_items: list[dict[str, Any]] | None = None,
+    terminal_handler: Callable[..., AgentIntent] | None = None,
     turn_engine_cls: Callable[..., Any],
 ) -> AgentIntent:
     if not continuation_input_items:
@@ -386,15 +393,11 @@ def resume_native_tool_followup(
     return rescue_engine.run(
         user_text=user_text,
         initial_input=[
-            dict(item)
-            for item in list(continuation_input_items or [])
-            if isinstance(item, dict)
+            dict(item) for item in list(continuation_input_items or []) if isinstance(item, dict)
         ],
         initial_previous_response_id=previous_response_id,
         initial_executed_events=list(executed_events or []),
         initial_executed_item_events=[
-            dict(item)
-            for item in list(executed_item_events or [])
-            if isinstance(item, dict)
+            dict(item) for item in list(executed_item_events or []) if isinstance(item, dict)
         ],
     )

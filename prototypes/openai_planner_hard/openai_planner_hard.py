@@ -1,15 +1,9 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from collections.abc import Callable
+from typing import Any
 
-import openai_planner_hard_event_helpers as event_helpers
-import openai_planner_hard_logging_helpers as logging_helpers
-import openai_planner_hard_plan_helpers as plan_helpers
-import openai_planner_hard_prompt_helpers as prompt_helpers
-import openai_planner_hard_pure_helpers as pure_helpers
-import openai_planner_hard_response_helpers as response_helpers
-import openai_planner_hard_synthesis_helpers as synthesis_helpers
 from cli.agent_cli.core.turn_engine import TurnEngine
 from cli.agent_cli.debug_timeline import json_ready, log_timeline, timeline_debug_enabled
 from cli.agent_cli.host_platform import HostPlatform
@@ -29,21 +23,39 @@ from cli.agent_cli.providers.openai_client import build_openai_client, call_with
 from cli.agent_cli.providers.planners_common import BasePlanner
 from cli.agent_cli.providers.tool_calls import (
     command_for_tool_call as _command_for_tool_call_impl,
+)
+from cli.agent_cli.providers.tool_calls import (
     plugin_system_prompt_addendum as _plugin_system_prompt_addendum_impl,
+)
+from cli.agent_cli.providers.tool_calls import (
     tool_result_payload as _tool_result_payload_impl,
 )
 from cli.agent_cli.providers.tool_specs import (
     command_text_patterns as _command_text_patterns_impl,
+)
+from cli.agent_cli.providers.tool_specs import (
     provider_tool_names as _provider_tool_names_impl,
+)
+from cli.agent_cli.providers.tool_specs import (
     responses_minimal_provider_tool_names as _responses_minimal_provider_tool_names_impl,
+)
+from cli.agent_cli.providers.tool_specs import (
     responses_minimal_provider_tool_specs as _responses_minimal_provider_tool_specs_impl,
-    responses_provider_tool_specs as _responses_provider_tool_specs_impl,
+)
+from prototypes.openai_planner_hard import openai_planner_hard_event_helpers as event_helpers
+from prototypes.openai_planner_hard import openai_planner_hard_logging_helpers as logging_helpers
+from prototypes.openai_planner_hard import openai_planner_hard_plan_helpers as plan_helpers
+from prototypes.openai_planner_hard import openai_planner_hard_prompt_helpers as prompt_helpers
+from prototypes.openai_planner_hard import openai_planner_hard_pure_helpers as pure_helpers
+from prototypes.openai_planner_hard import openai_planner_hard_response_helpers as response_helpers
+from prototypes.openai_planner_hard import (
+    openai_planner_hard_synthesis_helpers as synthesis_helpers,
 )
 
-PlannerToolExecutor = Callable[[str], Tuple[str, List[ToolEvent]]]
+PlannerToolExecutor = Callable[[str], tuple[str, list[ToolEvent]]]
 
 
-def _log_responses_request(stage: str, kwargs: Dict[str, Any]) -> None:
+def _log_responses_request(stage: str, kwargs: dict[str, Any]) -> None:
     logging_helpers.log_responses_request(
         stage,
         kwargs,
@@ -65,13 +77,15 @@ def _log_responses_response(stage: str, response: Any) -> None:
 
 def _plugin_system_prompt_addendum(
     *,
-    plugin_manager_factory: Optional[Callable[[], Any]] = None,
+    plugin_manager_factory: Callable[[], Any] | None = None,
 ) -> str:
     return _plugin_system_prompt_addendum_impl(plugin_manager_factory=plugin_manager_factory)
 
 
 class OpenAIPlanner(BasePlanner):
-    _COMMAND_PATTERN = re.compile(r"(?m)(/(?:shell|apply_patch|grep_files|read_file|list_dir|file_list|file_search|file_read|office_skills|office_run|web_search|web_fetch|open|click|find)\b[^\r\n`]*)")
+    _COMMAND_PATTERN = re.compile(
+        r"(?m)(/(?:shell|apply_patch|grep_files|read_file|list_dir|file_list|file_search|file_read|office_skills|office_run|web_search|web_fetch|open|click|find)\b[^\r\n`]*)"
+    )
     _FOLLOWUP_COMMAND_PATTERN = re.compile(
         r"\s+/(?:shell|apply_patch|grep_files|read_file|list_dir|file_list|file_search|file_read|office_skills|office_run|web_search|web_fetch|open|click|find)\b"
     )
@@ -82,7 +96,7 @@ class OpenAIPlanner(BasePlanner):
         *,
         host_platform: HostPlatform | None = None,
         cwd: str | None = None,
-        plugin_manager_factory: Optional[Callable[[], Any]] = None,
+        plugin_manager_factory: Callable[[], Any] | None = None,
     ) -> None:
         super().__init__(
             config,
@@ -106,11 +120,11 @@ class OpenAIPlanner(BasePlanner):
         self.native_tool_system_prompt = init_state["native_tool_system_prompt"]
 
     @staticmethod
-    def _message_input_item(role: str, content: str) -> Dict[str, Any]:
+    def _message_input_item(role: str, content: str) -> dict[str, Any]:
         return pure_helpers.message_input_item(role, content)
 
     @staticmethod
-    def _extract_json_payload(raw_text: str) -> Optional[Dict[str, Any]]:
+    def _extract_json_payload(raw_text: str) -> dict[str, Any] | None:
         return pure_helpers.extract_json_payload(raw_text)
 
     @staticmethod
@@ -121,14 +135,14 @@ class OpenAIPlanner(BasePlanner):
     def _optional_bool(value: Any, default: bool = False) -> bool:
         return pure_helpers.optional_bool(value, default)
 
-    def _tool_specs(self) -> List[Dict[str, Any]]:
+    def _tool_specs(self) -> list[dict[str, Any]]:
         return _responses_minimal_provider_tool_specs_impl(
             self.config,
             self.host_platform,
             plugin_manager_factory=self.plugin_manager_factory,
         )
 
-    def _reasoning_request(self) -> Optional[Dict[str, Any]]:
+    def _reasoning_request(self) -> dict[str, Any] | None:
         effort = str(self.config.reasoning_effort or "").strip()
         if not effort:
             return None
@@ -137,7 +151,7 @@ class OpenAIPlanner(BasePlanner):
             "summary": "auto",
         }
 
-    def _command_for_function_call(self, name: str, arguments: Dict[str, Any]) -> Optional[str]:
+    def _command_for_function_call(self, name: str, arguments: dict[str, Any]) -> str | None:
         return _command_for_tool_call_impl(
             name,
             arguments,
@@ -148,7 +162,7 @@ class OpenAIPlanner(BasePlanner):
         )
 
     @staticmethod
-    def _response_function_calls(response: Any) -> List[Dict[str, Any]]:
+    def _response_function_calls(response: Any) -> list[dict[str, Any]]:
         return response_helpers.response_function_calls(response)
 
     @staticmethod
@@ -161,10 +175,10 @@ class OpenAIPlanner(BasePlanner):
     @staticmethod
     def _tool_output_item(
         call_id: str,
-        command_text: Optional[str],
+        command_text: str | None,
         assistant_text: str,
-        events: List[ToolEvent],
-    ) -> Dict[str, Any]:
+        events: list[ToolEvent],
+    ) -> dict[str, Any]:
         return response_helpers.tool_output_item(
             call_id,
             command_text,
@@ -174,11 +188,13 @@ class OpenAIPlanner(BasePlanner):
         )
 
     @staticmethod
-    def _next_item_index(events: List[Dict[str, Any]]) -> int:
+    def _next_item_index(events: list[dict[str, Any]]) -> int:
         return event_helpers.next_item_index(events)
 
     @classmethod
-    def _rebase_item_events(cls, events: List[Dict[str, Any]], *, start_index: int) -> List[Dict[str, Any]]:
+    def _rebase_item_events(
+        cls, events: list[dict[str, Any]], *, start_index: int
+    ) -> list[dict[str, Any]]:
         return event_helpers.rebase_item_events(events, start_index=start_index)
 
     @classmethod
@@ -186,9 +202,9 @@ class OpenAIPlanner(BasePlanner):
         cls,
         *,
         assistant_text: str,
-        response_items: List[Any],
-        executed_item_events: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+        response_items: list[Any],
+        executed_item_events: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         return event_helpers.compose_turn_events(
             assistant_text=assistant_text,
             response_items=response_items,
@@ -197,10 +213,10 @@ class OpenAIPlanner(BasePlanner):
 
     @staticmethod
     def _rewrite_existing_turn_events(
-        existing_turn_events: List[Dict[str, Any]],
+        existing_turn_events: list[dict[str, Any]],
         *,
         final_text: str,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         return event_helpers.rewrite_existing_turn_events(
             existing_turn_events,
             final_text=final_text,
@@ -210,10 +226,10 @@ class OpenAIPlanner(BasePlanner):
         self,
         *,
         assistant_text: str,
-        response_items: List[Any],
-        executed_item_events: List[Dict[str, Any]],
-        existing_turn_events: Optional[List[Dict[str, Any]]] = None,
-    ) -> List[Dict[str, Any]]:
+        response_items: list[Any],
+        executed_item_events: list[dict[str, Any]],
+        existing_turn_events: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, Any]]:
         return event_helpers.canonical_turn_events(
             assistant_text=assistant_text,
             response_items=response_items,
@@ -224,19 +240,23 @@ class OpenAIPlanner(BasePlanner):
         )
 
     @staticmethod
-    def _tool_item_events_from_turn_events(turn_events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _tool_item_events_from_turn_events(
+        turn_events: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         return event_helpers.tool_item_events_from_turn_events(turn_events)
 
     @staticmethod
-    def _execute_tool_result(tool_executor: PlannerToolExecutor, command_text: str) -> CommandExecutionResult:
+    def _execute_tool_result(
+        tool_executor: PlannerToolExecutor, command_text: str
+    ) -> CommandExecutionResult:
         return event_helpers.execute_tool_result(tool_executor, command_text)
 
     def _history_for_conversation(
         self,
-        history: List[Dict[str, str]],
+        history: list[dict[str, str]],
         *,
-        input_items: Optional[List[Dict[str, Any]]] = None,
-    ) -> List[Dict[str, str]]:
+        input_items: list[dict[str, Any]] | None = None,
+    ) -> list[dict[str, str]]:
         return event_helpers.history_for_conversation(
             history,
             input_items=input_items,
@@ -247,9 +267,9 @@ class OpenAIPlanner(BasePlanner):
         self,
         *,
         user_text: str,
-        executed_events: List[ToolEvent],
-        executed_item_events: Optional[List[Dict[str, Any]]] = None,
-        attachments: Optional[List[PromptAttachment]] = None,
+        executed_events: list[ToolEvent],
+        executed_item_events: list[dict[str, Any]] | None = None,
+        attachments: list[PromptAttachment] | None = None,
     ) -> AgentIntent:
         return synthesis_helpers.fresh_synthesis_after_tool_loop(
             self,
@@ -267,12 +287,12 @@ class OpenAIPlanner(BasePlanner):
         self,
         *,
         synthesized: AgentIntent,
-        executed_events: List[ToolEvent],
+        executed_events: list[ToolEvent],
         started_at: float,
         model_ms: int,
         tool_execution_ms: int,
         rounds: int,
-        executed_item_events: Optional[List[Dict[str, Any]]] = None,
+        executed_item_events: list[dict[str, Any]] | None = None,
     ) -> AgentIntent:
         return synthesis_helpers.merge_followup_synthesis_intent(
             self,
@@ -289,10 +309,10 @@ class OpenAIPlanner(BasePlanner):
         self,
         *,
         user_text: str,
-        executed_events: List[ToolEvent],
-        executed_item_events: Optional[List[Dict[str, Any]]] = None,
-        attachments: Optional[List[PromptAttachment]] = None,
-    ) -> List[Dict[str, Any]]:
+        executed_events: list[ToolEvent],
+        executed_item_events: list[dict[str, Any]] | None = None,
+        attachments: list[PromptAttachment] | None = None,
+    ) -> list[dict[str, Any]]:
         return synthesis_helpers.tool_followup_messages(
             self,
             user_text=user_text,
@@ -305,10 +325,10 @@ class OpenAIPlanner(BasePlanner):
         self,
         *,
         user_text: str,
-        executed_events: List[ToolEvent],
+        executed_events: list[ToolEvent],
         tool_executor: PlannerToolExecutor,
-        executed_item_events: Optional[List[Dict[str, Any]]] = None,
-        attachments: Optional[List[PromptAttachment]] = None,
+        executed_item_events: list[dict[str, Any]] | None = None,
+        attachments: list[PromptAttachment] | None = None,
     ) -> AgentIntent:
         return synthesis_helpers.fresh_followup_after_tool_loop(
             self,
@@ -336,10 +356,10 @@ class OpenAIPlanner(BasePlanner):
         self,
         *,
         user_text: str,
-        executed_events: List[ToolEvent],
-        executed_item_events: Optional[List[Dict[str, Any]]] = None,
-        attachments: Optional[List[PromptAttachment]] = None,
-    ) -> List[Dict[str, Any]]:
+        executed_events: list[ToolEvent],
+        executed_item_events: list[dict[str, Any]] | None = None,
+        attachments: list[PromptAttachment] | None = None,
+    ) -> list[dict[str, Any]]:
         return synthesis_helpers.synthesis_messages(
             self,
             user_text=user_text,
@@ -354,11 +374,11 @@ class OpenAIPlanner(BasePlanner):
         session: OpenAIResponsesSession,
         user_text: str,
         tool_executor: PlannerToolExecutor,
-        executed_events: List[ToolEvent],
-        executed_item_events: Optional[List[Dict[str, Any]]] = None,
-        previous_response_id: Optional[str] = None,
-        continuation_input_items: Optional[List[Dict[str, Any]]] = None,
-        terminal_handler: Optional[Callable[..., AgentIntent]] = None,
+        executed_events: list[ToolEvent],
+        executed_item_events: list[dict[str, Any]] | None = None,
+        previous_response_id: str | None = None,
+        continuation_input_items: list[dict[str, Any]] | None = None,
+        terminal_handler: Callable[..., AgentIntent] | None = None,
     ) -> AgentIntent:
         return synthesis_helpers.resume_native_tool_followup(
             self,
@@ -373,14 +393,14 @@ class OpenAIPlanner(BasePlanner):
             turn_engine_cls=TurnEngine,
         )
 
-    def _normalize_command_text(self, command_text: Optional[str]) -> Optional[str]:
+    def _normalize_command_text(self, command_text: str | None) -> str | None:
         return pure_helpers.normalize_command_text(
             command_text,
             followup_command_pattern=self._FOLLOWUP_COMMAND_PATTERN,
             host_platform=self.host_platform,
         )
 
-    def _extract_command_text(self, raw_text: str) -> Optional[str]:
+    def _extract_command_text(self, raw_text: str) -> str | None:
         return pure_helpers.extract_command_text(
             raw_text,
             command_pattern=self._COMMAND_PATTERN,
@@ -405,13 +425,13 @@ class OpenAIPlanner(BasePlanner):
     def plan(
         self,
         user_text: str,
-        history: List[Dict[str, str]],
+        history: list[dict[str, str]],
         *,
-        tool_executor: Optional[PlannerToolExecutor] = None,
-        attachments: Optional[List[PromptAttachment]] = None,
-        input_items: Optional[List[Dict[str, Any]]] = None,
-        prompt_cache_key: Optional[str] = None,
-        turn_event_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+        tool_executor: PlannerToolExecutor | None = None,
+        attachments: list[PromptAttachment] | None = None,
+        input_items: list[dict[str, Any]] | None = None,
+        prompt_cache_key: str | None = None,
+        turn_event_callback: Callable[[dict[str, Any]], None] | None = None,
     ) -> AgentIntent:
         return plan_helpers.plan(
             self,
@@ -429,10 +449,10 @@ class OpenAIPlanner(BasePlanner):
     def _plan_without_native_tools(
         self,
         user_text: str,
-        history: List[Dict[str, str]],
+        history: list[dict[str, str]],
         *,
-        attachments: Optional[List[PromptAttachment]] = None,
-        input_items: Optional[List[Dict[str, Any]]] = None,
+        attachments: list[PromptAttachment] | None = None,
+        input_items: list[dict[str, Any]] | None = None,
     ) -> AgentIntent:
         return plan_helpers.plan_without_native_tools(
             self,
