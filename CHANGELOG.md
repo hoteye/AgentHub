@@ -8,6 +8,12 @@ The format is based on Keep a Changelog, with one release section per published 
 
 No unreleased changes yet.
 
+## [0.1.10] - 2026-05-13
+
+### Fixed
+
+- Skipped the Linux installer smoke regression test on Windows runners so source CI no longer invokes bash installer coverage in a WSL-less environment.
+
 ## [0.1.9] - 2026-05-13
 
 ### Fixed

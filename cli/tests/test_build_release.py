@@ -192,6 +192,8 @@ class BuildReleaseScriptTest(unittest.TestCase):
             self.assertEqual(MODULE.codex_platform_key(), "macos-arm64")
 
     def test_install_script_cleanup_trap_survives_successful_install(self) -> None:
+        if os.name == "nt":
+            self.skipTest("installer smoke uses bash")
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             version = "9.9.9"
