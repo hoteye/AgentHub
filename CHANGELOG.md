@@ -8,6 +8,12 @@ The format is based on Keep a Changelog, with one release section per published 
 
 No unreleased changes yet.
 
+## [0.1.11] - 2026-05-13
+
+### Fixed
+
+- Added `git` to the Linux clean-install smoke container dependencies so packaged CLI startup checks run in a fresh Ubuntu image.
+
 ## [0.1.10] - 2026-05-13
 
 ### Fixed

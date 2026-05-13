@@ -118,7 +118,7 @@ fail() {
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y --no-install-recommends ca-certificates curl tar gzip
+apt-get install -y --no-install-recommends ca-certificates curl git tar gzip
 
 curl -fsSL "$AGENTHUB_INSTALL_SCRIPT_URL" | bash
 export PATH="$HOME/.local/bin:$PATH"

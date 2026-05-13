@@ -47,6 +47,17 @@ class ReleaseWorkflowDependenciesTest(unittest.TestCase):
         self.assertEqual(env.get("AGENTHUB_INSTALL_REPO"), "${{ github.repository }}")
         self.assertEqual(env.get("AGENTHUB_INSTALL_VERSION"), "${{ github.ref_name }}")
 
+    def test_clean_install_smoke_installs_packaged_cli_runtime_dependencies(self) -> None:
+        script_path = (
+            Path(__file__).resolve().parents[2] / "scripts" / "clean_install_smoke_linux.sh"
+        )
+        script_text = script_path.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "apt-get install -y --no-install-recommends ca-certificates curl git tar gzip",
+            script_text,
+        )
+
     def test_gui_release_workflow_installs_pytest_dependencies(self) -> None:
         steps = _steps(_workflow("release-gui-desktop.yml"), "build")
 
