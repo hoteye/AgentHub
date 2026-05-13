@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -72,13 +73,23 @@ class RuleBasedAgent(AgentProviderRuntimeMixin):
     _PLANNER_UNAVAILABLE_FALLBACK_TEXT = "无法继续：未检测到可用的 LLM provider。"
     _PLANNER_RUNTIME_FALLBACK_TEXT = "无法继续："
 
-    def __init__(self, *, host_platform: HostPlatform | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        host_platform: HostPlatform | None = None,
+        build_initial_planner: bool = True,
+    ) -> None:
         self.host_platform = host_platform or current_host_platform()
         self.cwd: Path | None = None
         self._plugin_manager_factory: Callable[[], Any] | None = None
         self._provider_availability_registry: Any | None = None
         self._planner: Planner | None = None
+        self._planner_lazy_enabled: bool = not build_initial_planner
+        self._planner_config: Any | None = None
+        self._planner_build_pending: bool = False
         self._planner_managed: bool = False
+        self._planner_reload_defer_depth: int = 0
+        self._planner_reload_pending: bool = False
         self._planner_error: str | None = None
         self._planner_runtime_error: str | None = None
         self._planner_runtime_error_diagnostics: dict[str, Any] | None = None
@@ -87,18 +98,58 @@ class RuleBasedAgent(AgentProviderRuntimeMixin):
         self._session_route_overrides: dict[str, dict[str, Any]] = {}
         self._session_delegation_overrides: dict[str, dict[str, Any]] = {}
         self._provider_paths = resolve_provider_paths()
-        self._reload_planner()
+        if build_initial_planner:
+            self._reload_planner()
+
+    @contextmanager
+    def defer_planner_reload(self):
+        self._planner_reload_defer_depth += 1
+        try:
+            yield
+        finally:
+            self._planner_reload_defer_depth = max(0, self._planner_reload_defer_depth - 1)
+            if self._planner_reload_defer_depth == 0 and self._planner_reload_pending:
+                self._planner_reload_pending = False
+                self._reload_planner()
+
+    def prepare_lazy_planner(self) -> None:
+        if not bool(getattr(self, "_planner_lazy_enabled", False)):
+            return
+        agent_config_runtime.prepare_lazy_planner(
+            self,
+            resolve_provider_paths_fn=resolve_provider_paths,
+            load_provider_config_fn=load_provider_config,
+            apply_review_gate=False,
+        )
+        self._planner_reload_pending = False
 
     def _provider_loader_kwargs(self) -> dict[str, Path]:
         return agent_config_runtime.provider_loader_kwargs(self)
 
     def _reload_planner(self) -> None:
+        if self._planner_reload_defer_depth > 0:
+            self._planner_reload_pending = True
+            return
+        if self._planner is None and bool(getattr(self, "_planner_lazy_enabled", False)):
+            self.prepare_lazy_planner()
+            self._sync_provider_availability_registry()
+            return
         agent_config_runtime.reload_planner(
             self,
             resolve_provider_paths_fn=resolve_provider_paths,
             load_provider_config_fn=load_provider_config,
             build_planner_fn=build_planner,
         )
+        self._sync_provider_availability_registry()
+
+    def _ensure_planner_loaded(self) -> None:
+        if self._planner is not None:
+            return
+        if not bool(getattr(self, "_planner_build_pending", False)) and bool(
+            getattr(self, "_planner_lazy_enabled", False)
+        ):
+            self.prepare_lazy_planner()
+        agent_config_runtime.build_pending_planner(self, build_planner_fn=build_planner)
         self._sync_provider_availability_registry()
 
     def _sync_provider_availability_registry(self) -> None:
@@ -219,6 +270,9 @@ class RuleBasedAgent(AgentProviderRuntimeMixin):
         )
 
     def set_runtime_policy_overrides(self, overrides: dict[str, Any] | None) -> None:
+        if self._planner is None and bool(getattr(self, "_planner_lazy_enabled", False)):
+            agent_config_runtime.set_runtime_policy_overrides_payload(self, overrides)
+            return
         agent_config_runtime.set_runtime_policy_overrides(
             self,
             overrides,

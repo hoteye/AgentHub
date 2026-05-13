@@ -549,6 +549,23 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertIs(app.focused, app.query_one("#prompt_composer", PromptComposer))
 
+    async def test_prompt_composer_recovers_keyboard_input_when_focus_is_lost(self) -> None:
+        runtime = RecordingRuntime()
+        app = AgentCliApp(runtime=runtime)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app.set_focus(None)
+            await pilot.press("h")
+            await asyncio.sleep(0.1)
+            composer = app.query_one("#prompt_composer", PromptComposer)
+            self.assertEqual(composer.text, "h")
+            self.assertIs(app.focused, composer)
+            await pilot.press("enter")
+            await app._wait_for_runtime_idle()
+
+        self.assertEqual(runtime.last_prompt, "h")
+
     async def test_app_mouse_up_outside_composer_refocuses_prompt(self) -> None:
         app = AgentCliApp()
         focus_calls: list[str] = []

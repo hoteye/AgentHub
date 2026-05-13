@@ -26,6 +26,7 @@ from cli.agent_cli.app_runtime_flow import (
 from cli.agent_cli.app_runtime_flow import (
     _PendingRequestUserInput as _PendingRequestUserInputRuntime,
 )
+from cli.agent_cli.startup_debug import startup_timer
 from cli.agent_cli.ui import (
     PromptComposer,
     SlashCommandPopup,
@@ -87,19 +88,22 @@ class AgentCliApp(
         language: str | None = None,
         theme_id: str | None = None,
     ) -> None:
-        resolved_runtime = resolve_runtime(runtime)
-        bootstrap = app_bootstrap_helpers_runtime.build_bootstrap_context(
-            runtime=resolved_runtime,
-            language=language,
-            theme_id=theme_id,
-        )
+        with startup_timer("app.init.resolve_runtime"):
+            resolved_runtime = resolve_runtime(runtime)
+        with startup_timer("app.init.bootstrap_context"):
+            bootstrap = app_bootstrap_helpers_runtime.build_bootstrap_context(
+                runtime=resolved_runtime,
+                language=language,
+                theme_id=theme_id,
+            )
         app_bootstrap_helpers_runtime.apply_pre_super_state(
             self,
             language=language,
             theme_id=theme_id,
             context=bootstrap,
         )
-        super().__init__(driver_class=bootstrap.driver_class)
+        with startup_timer("app.init.textual_super"):
+            super().__init__(driver_class=bootstrap.driver_class)
         app_bootstrap_helpers_runtime.initialize_app_state(
             self,
             prompt_history_home=prompt_history_home,

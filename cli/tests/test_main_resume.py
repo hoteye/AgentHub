@@ -110,6 +110,7 @@ class MainResumeTest(unittest.TestCase):
 
     def test_build_tui_runtime_new_session_uses_startup_cwd_before_thread_start(self) -> None:
         calls: list[object] = []
+        prefetched = object()
 
         class _FakeRuntime:
             runtime_policy = SimpleNamespace(
@@ -156,13 +157,20 @@ class MainResumeTest(unittest.TestCase):
             startup_cwd = Path(temp_dir) / "gemini-cli"
             startup_cwd.mkdir()
             with patch.dict("os.environ", {"AGENTHUB_STARTUP_CWD": str(startup_cwd)}, clear=False):
-                with patch(
-                    "cli.agent_cli.runtime_factory.build_persistent_runtime",
-                    return_value=_FakeRuntime(),
-                ) as mock_build:
+                with (
+                    patch(
+                        "cli.agent_cli.runtime_factory.build_persistent_runtime",
+                        return_value=_FakeRuntime(),
+                    ) as mock_build,
+                    patch(
+                        "cli.agent_cli.main._start_tui_tab_restore_prefetch",
+                        return_value=prefetched,
+                    ) as mock_prefetch,
+                ):
                     built = _build_tui_runtime(args, runtime=None)
 
         self.assertIsNotNone(built)
+        self.assertIs(built._codex_sidecar_restore_prefetch, prefetched)
         self.assertEqual(
             calls,
             [
@@ -174,6 +182,29 @@ class MainResumeTest(unittest.TestCase):
         self.assertEqual(mock_build.call_count, 1)
         self.assertFalse(mock_build.call_args.kwargs["resume_active_thread"])
         self.assertFalse(mock_build.call_args.kwargs["start_thread_if_unavailable"])
+        mock_prefetch.assert_called_once()
+
+    def test_build_tui_runtime_skips_tab_prefetch_for_explicit_resume(self) -> None:
+        runtime = AgentCliRuntime(agent=_MainResumeAgent())
+        args = SimpleNamespace(
+            resume="thread-explicit",
+            resume_path=None,
+            resume_last=False,
+            approval_policy="never",
+            sandbox_mode="danger-full-access",
+            web_search_mode="disabled",
+            network_access="enabled",
+        )
+
+        with (
+            patch("cli.agent_cli.main._start_tui_tab_restore_prefetch") as mock_prefetch,
+            patch("cli.agent_cli.resume_support.apply_runtime_resume_request") as mock_resume,
+        ):
+            built = _build_tui_runtime(args, runtime)
+
+        self.assertIs(built, runtime)
+        mock_prefetch.assert_not_called()
+        mock_resume.assert_called_once()
 
     def test_build_tui_runtime_resume_restores_visible_transcript_only(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

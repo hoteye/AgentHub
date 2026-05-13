@@ -1,69 +1,85 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-label="AgentHub TUI workspace with visible child tabs and split preview pane">
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-label="AgentHub TUI single-window workspace with on-demand right preview pane">
   <rect width="1200" height="720" fill="#10131a"/>
-  <rect x="26" y="24" width="1148" height="672" rx="14" fill="#161b22" stroke="#30363d"/>
+  <rect x="30" y="24" width="1140" height="672" rx="10" fill="#161b22" stroke="#30363d"/>
 
-  <rect x="26" y="24" width="1148" height="44" rx="14" fill="#0d1117"/>
-  <circle cx="54" cy="46" r="6" fill="#ff5f57"/>
-  <circle cx="74" cy="46" r="6" fill="#ffbd2e"/>
-  <circle cx="94" cy="46" r="6" fill="#28c840"/>
-  <text x="128" y="51" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16" fill="#e6edf3">AgentHub TUI workspace</text>
+  <rect x="30" y="24" width="1140" height="42" rx="10" fill="#0d1117"/>
+  <circle cx="58" cy="45" r="6" fill="#ff5f57"/>
+  <circle cx="78" cy="45" r="6" fill="#ffbd2e"/>
+  <circle cx="98" cy="45" r="6" fill="#28c840"/>
+  <text x="130" y="50" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16" fill="#e6edf3">AgentHub TUI starts as one window</text>
+  <text x="930" y="50" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8b949e">tmux preview opens after click</text>
 
-  <rect x="50" y="92" width="732" height="574" rx="8" fill="#0d1117" stroke="#30363d"/>
-  <rect x="806" y="92" width="344" height="574" rx="8" fill="#0d1117" stroke="#30363d"/>
+  <rect x="56" y="94" width="748" height="572" rx="8" fill="#0d1117" stroke="#30363d"/>
+  <rect x="56" y="94" width="748" height="28" rx="8" fill="#161b22"/>
+  <text x="76" y="113" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8b949e">⍬</text>
+  <text x="380" y="113" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">Project capability review</text>
 
-  <rect x="66" y="110" width="700" height="38" rx="6" fill="#161b22"/>
-  <rect x="78" y="118" width="120" height="22" rx="4" fill="#238636"/>
-  <text x="92" y="134" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#ffffff">1 Master</text>
-  <rect x="206" y="118" width="126" height="22" rx="4" fill="#30363d"/>
-  <text x="220" y="134" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">2 README</text>
-  <rect x="340" y="118" width="116" height="22" rx="4" fill="#30363d"/>
-  <text x="354" y="134" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">3 Docs</text>
-  <rect x="464" y="118" width="152" height="22" rx="4" fill="#1f6feb"/>
-  <text x="478" y="134" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#ffffff">4 Codex sidecar</text>
-  <text x="640" y="134" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8b949e">Ctrl+T new tab</text>
+  <rect x="56" y="122" width="26" height="462" fill="#11161c"/>
+  <text x="64" y="178" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#f0f6fc">▔🭾</text>
+  <text x="66" y="202" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" font-weight="700" fill="#f0f6fc">1▕</text>
+  <text x="64" y="226" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#f0f6fc">▁🭿</text>
+  <text x="67" y="292" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#8b949e">2</text>
+  <text x="67" y="362" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#8b949e">3</text>
+  <text x="65" y="432" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#f2cc60">●</text>
+  <text x="67" y="456" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#8b949e">4</text>
 
-  <text x="78" y="184" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#e6edf3">Master prompt</text>
-  <rect x="78" y="198" width="660" height="60" rx="6" fill="#161b22" stroke="#30363d"/>
-  <text x="96" y="224" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#c9d1d9">Use visible child tabs: one reads README, one reads docs,</text>
-  <text x="96" y="246" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#c9d1d9">then wait for all TaskRun summaries and merge findings.</text>
+  <rect x="82" y="122" width="722" height="462" fill="#0d1117"/>
+  <text x="104" y="160" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8b949e">system</text>
+  <text x="170" y="160" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#c9d1d9">Ready. Use /provider, /tools, or visible child tabs.</text>
 
-  <rect x="78" y="284" width="300" height="94" rx="6" fill="#0f1623" stroke="#1f6feb"/>
-  <text x="94" y="310" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#79c0ff">spawn_child_tab</text>
-  <text x="94" y="334" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">tab 2: inspect README</text>
-  <text x="94" y="358" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8b949e">visible, steerable, own composer</text>
+  <text x="104" y="208" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#79c0ff">user</text>
+  <text x="170" y="208" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#e6edf3">Use visible child tabs: one reads README, one reads docs,</text>
+  <text x="170" y="232" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#e6edf3">then wait for all TaskRun summaries and merge findings.</text>
 
-  <rect x="438" y="284" width="300" height="94" rx="6" fill="#0f1623" stroke="#1f6feb"/>
-  <text x="454" y="310" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#79c0ff">spawn_child_tab</text>
-  <text x="454" y="334" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">tab 3: inspect docs</text>
-  <text x="454" y="358" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8b949e">provider can differ per tab</text>
+  <rect x="104" y="266" width="300" height="80" rx="6" fill="#0f1623" stroke="#1f6feb"/>
+  <text x="124" y="294" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#79c0ff">visible child tab</text>
+  <text x="124" y="318" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">tab 2: inspect README</text>
 
-  <rect x="78" y="410" width="660" height="122" rx="6" fill="#161b22" stroke="#30363d"/>
-  <text x="96" y="436" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#f0f6fc">wait_child_tasks(wait_for=&quot;all&quot;)</text>
-  <text x="96" y="462" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">TaskRun tab 2: completed / claimed_done / README capabilities</text>
-  <text x="96" y="486" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">TaskRun tab 3: completed / claimed_done / docs architecture</text>
-  <text x="96" y="510" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8b949e">Master consumes structured TaskRun records, not hidden child state.</text>
+  <rect x="438" y="266" width="300" height="80" rx="6" fill="#0f1623" stroke="#1f6feb"/>
+  <text x="458" y="294" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#79c0ff">visible child tab</text>
+  <text x="458" y="318" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">tab 3: inspect docs</text>
 
-  <rect x="78" y="564" width="660" height="54" rx="6" fill="#161b22" stroke="#30363d"/>
-  <text x="96" y="598" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#c9d1d9">composer &gt; /tab_new codex    /preview toggle    /codex_threads</text>
+  <rect x="104" y="380" width="634" height="76" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="124" y="408" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#f0f6fc">wait_child_tasks(wait_for=&quot;all&quot;)</text>
+  <text x="124" y="432" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">TaskRun tab 2: completed / README capabilities</text>
 
-  <rect x="824" y="110" width="308" height="38" rx="6" fill="#161b22"/>
-  <text x="840" y="134" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#e6edf3">Right preview pane</text>
-  <text x="1038" y="134" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8b949e">tmux</text>
+  <text x="104" y="504" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#8b949e">assistant</text>
+  <text x="190" y="504" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#c9d1d9">Open </text>
+  <text x="238" y="504" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" text-decoration="underline" fill="#a5d6ff">README.md:42</text>
+  <text x="340" y="504" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#c9d1d9"> or </text>
+  <text x="382" y="504" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" text-decoration="underline" fill="#a5d6ff">cli/docs/README.md</text>
+  <text x="546" y="504" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#c9d1d9"> from the transcript.</text>
 
-  <rect x="824" y="172" width="308" height="178" rx="6" fill="#0f1623" stroke="#30363d"/>
-  <text x="842" y="202" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#79c0ff">Clicked from transcript</text>
-  <text x="842" y="230" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">README.md:42</text>
-  <text x="842" y="254" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">docs/AGENTHUB_*.md</text>
-  <text x="842" y="278" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">https://example.com</text>
-  <text x="842" y="316" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8b949e">opens in nvim/vim/less/w3m/lynx</text>
+  <rect x="56" y="584" width="748" height="24" fill="#161b22"/>
+  <text x="70" y="601" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#8b949e">provider=openai | model=gpt-5.5 | tab=1 | preview=closed</text>
+  <rect x="56" y="608" width="748" height="34" fill="#161b22" stroke="#30363d"/>
+  <text x="72" y="630" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#c9d1d9">› ask the parent tab to summarize child TaskRun results</text>
+  <rect x="56" y="642" width="748" height="24" fill="#161b22"/>
+  <text x="70" y="659" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#8b949e">/preview status  /preview open  /preview close  /tab_new codex</text>
 
-  <rect x="824" y="380" width="308" height="146" rx="6" fill="#0f1623" stroke="#8957e5"/>
-  <text x="842" y="410" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#d2a8ff">Codex sidecar runtime</text>
-  <text x="842" y="438" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">codex-app-server --listen stdio://</text>
-  <text x="842" y="462" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">one process, many Codex threads</text>
-  <text x="842" y="486" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">native tools, approvals, catalog</text>
+  <path d="M790 504 C840 500 846 174 874 160" fill="none" stroke="#58a6ff" stroke-width="2" stroke-dasharray="7 7"/>
+  <circle cx="790" cy="504" r="5" fill="#58a6ff"/>
 
-  <rect x="824" y="556" width="308" height="62" rx="6" fill="#161b22" stroke="#30363d"/>
-  <text x="842" y="584" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">Hover: underline clickable paths</text>
-  <text x="842" y="608" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">Exit editor: pane returns to shell</text>
+  <rect x="842" y="94" width="302" height="572" rx="8" fill="#0d1117" stroke="#58a6ff" stroke-width="2" stroke-dasharray="8 8"/>
+  <rect x="842" y="94" width="302" height="32" rx="8" fill="#0f1623"/>
+  <text x="862" y="115" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#e6edf3">Right preview pane</text>
+  <text x="1048" y="115" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" fill="#8b949e">after click</text>
+
+  <rect x="862" y="154" width="262" height="76" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="878" y="182" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#79c0ff">Clicked target</text>
+  <text x="878" y="206" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">README.md:42</text>
+
+  <rect x="862" y="258" width="262" height="156" rx="6" fill="#0f1623" stroke="#30363d"/>
+  <text x="878" y="288" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">opens with nvim/vim/less</text>
+  <text x="878" y="316" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">directories use yazi/mc/ranger</text>
+  <text x="878" y="344" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">URLs use w3m/lynx</text>
+  <text x="878" y="384" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8b949e">exit editor: shell remains</text>
+
+  <rect x="862" y="446" width="262" height="102" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="878" y="474" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#c9d1d9">Startup state:</text>
+  <text x="878" y="502" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#f2cc60">preview=closed</text>
+  <text x="878" y="530" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8b949e">split is created lazily</text>
+
+  <rect x="862" y="580" width="262" height="42" rx="6" fill="#0f1623" stroke="#30363d"/>
+  <text x="878" y="606" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#8b949e">close preview: returns to one window</text>
 </svg>

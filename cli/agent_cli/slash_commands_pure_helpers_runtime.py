@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from cli.agent_cli import slash_commands_catalog_runtime as _slash_commands_catalog_runtime
 from cli.agent_cli.slash_surface import surface_usage_text
 from cli.agent_cli.ui.theme import builtin_theme_ids
 
 THEME_COMMAND_USAGE = f"/theme <{'|'.join(builtin_theme_ids())}>"
+DISCOVERABLE_SLASH_COMMAND_NAMES = _slash_commands_catalog_runtime.DISCOVERABLE_SLASH_COMMAND_NAMES
+BUSY_MODE_BY_COMMAND = _slash_commands_catalog_runtime.BUSY_MODE_BY_COMMAND
 
 
 @dataclass(frozen=True)
@@ -435,75 +438,3 @@ SLASH_COMMAND_SPECS: tuple[SlashCommandSpec, ...] = (
         "compatibility alias for canonical browser page inspection flow",
     ),
 )
-
-
-DISCOVERABLE_SLASH_COMMAND_NAMES: frozenset[str] = frozenset(
-    {
-        "help",
-        "providers",
-        "models",
-        "setup",
-        "provider",
-        "model",
-        "codex_threads",
-        "codex_thread",
-        "codex_rollback",
-        "codex_compact",
-        "status",
-        "threads",
-        "resume",
-        "exit",
-        "quit",
-        "compact",
-        "mcp",
-        "init",
-        "orchestrate",
-        "orchestrate_confirm",
-        "orchestrate_dispatch",
-        "orchestrate_progress",
-        "orchestrate_continue",
-        "orchestrate_apply",
-        "orchestrate_reject",
-        "workflows",
-        "background_tasks",
-        "runtime_config",
-        "lang",
-        "theme",
-        "tools",
-        "plugins",
-        "memory",
-        "plan",
-        "tab_rename",
-        "tab_new",
-        "approval_inbox",
-        "preview",
-        "fork",
-        "master",
-        "fork_child",
-        "close",
-    }
-)
-
-
-BUSY_MODE_BY_COMMAND: dict[str, str] = {
-    "help": "allowed",
-    "providers": "allowed",
-    "models": "allowed",
-    "provider": "read_only",
-    "codex_threads": "allowed",
-    "codex_thread": "allowed",
-    "status": "allowed",
-    "setup": "allowed",
-    "update": "allowed",
-    "runtime_status": "allowed",
-    "tools": "allowed",
-    "plugins": "allowed",
-    "tab_rename": "allowed",
-    "tab_new": "allowed",
-    "approval_inbox": "allowed",
-    "preview": "allowed",
-    "fork": "allowed",
-    "master": "allowed",
-    "fork_child": "allowed",
-    "close": "allowed",
-}

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from cli.agent_cli.host_platform import HostPlatform, current_host_platform
 
@@ -51,7 +51,10 @@ def _command_execution_tool_names() -> tuple[set[str], set[str]]:
 def runtime_provider_config(runtime: Any) -> Any | None:
     agent = getattr(runtime, "agent", None)
     planner = getattr(agent, "_planner", None)
-    return getattr(planner, "config", None)
+    config = getattr(planner, "config", None)
+    if config is None:
+        config = getattr(agent, "_planner_config", None)
+    return config
 
 
 def _payload_tool_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -109,7 +112,7 @@ def _projected_tool_names(
     return [normalized]
 
 
-def runtime_tools_capabilities(runtime: Any) -> Dict[str, Any]:
+def runtime_tools_capabilities(runtime: Any) -> dict[str, Any]:
     tools = getattr(runtime, "tools", None)
     getter = getattr(tools, "capabilities", None)
     if not callable(getter):
@@ -142,7 +145,7 @@ def runtime_tools_capabilities(runtime: Any) -> Dict[str, Any]:
         if str(item.get("name") or "").strip()
     }
 
-    projected_rows: List[Dict[str, Any]] = []
+    projected_rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in payload_rows:
         source_name = str(item.get("name") or "").strip()

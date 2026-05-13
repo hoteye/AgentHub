@@ -5,8 +5,11 @@ import faulthandler
 import os
 import signal
 import sys
-from datetime import datetime, timezone
+from collections.abc import Iterator
+from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
+from time import perf_counter
 from typing import TextIO
 
 _STARTUP_DEBUG_STREAM: TextIO | None = None
@@ -14,7 +17,7 @@ _EXIT_LOG_INSTALLED = False
 
 
 def _timestamp() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def startup_debug_log_path() -> Path:
@@ -45,9 +48,40 @@ def startup_log(message: str) -> None:
     if stream is None:
         return
     try:
-        print(f"{_timestamp()} [DEBUG] [STARTUP] pid={os.getpid()} {message}", file=stream, flush=True)
+        print(
+            f"{_timestamp()} [DEBUG] [STARTUP] pid={os.getpid()} {message}", file=stream, flush=True
+        )
     except Exception:
         return
+
+
+def startup_profile_enabled() -> bool:
+    configured = str(os.environ.get("AGENTHUB_START_DEBUG_LOG") or "").strip()
+    explicit = str(os.environ.get("AGENTHUB_START_PROFILE") or "").strip().lower()
+    return bool(configured) or explicit in {"1", "true", "yes", "on"}
+
+
+def startup_profile_log(message: str) -> None:
+    if startup_profile_enabled():
+        startup_log(message)
+
+
+@contextmanager
+def startup_timer(label: str) -> Iterator[None]:
+    if not startup_profile_enabled():
+        yield
+        return
+    started_at = perf_counter()
+    startup_log(f"profile.{label}.begin")
+    try:
+        yield
+    except Exception as exc:
+        elapsed_ms = (perf_counter() - started_at) * 1000
+        startup_log(f"profile.{label}.error elapsed_ms={elapsed_ms:.1f} error={exc!r}")
+        raise
+    else:
+        elapsed_ms = (perf_counter() - started_at) * 1000
+        startup_log(f"profile.{label}.end elapsed_ms={elapsed_ms:.1f}")
 
 
 def enable_startup_faulthandler() -> None:

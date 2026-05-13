@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from contextlib import nullcontext
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from cli.agent_cli.runtime_workspace.models import ThreadWorkspaceContext
 
@@ -53,28 +55,40 @@ def bootstrap_runtime_environment(
     runtime_policy_status_getter: Callable[..., Any] | None = None,
     request_patch_approval_fn: Callable[..., Any] | None = None,
 ) -> Path:
-    agent_runtime_policy_setter = getattr(agent, "set_runtime_policy_overrides", None)
-    if callable(agent_runtime_policy_setter):
-        agent_runtime_policy_setter(runtime_policy_override_payload_fn(runtime_policy))
-    configure_runtime_tool_hooks_fn(
-        tools=tools,
-        shell_activity_callback=shell_activity_callback,
-        shell_activity_suppressed_getter=shell_activity_suppressed_getter,
-        shell_cancel_event_getter=shell_cancel_event_getter,
-        runtime_policy_status_getter=runtime_policy_status_getter,
-        request_patch_approval_fn=request_patch_approval_fn,
+    defer_planner_reload = getattr(agent, "defer_planner_reload", None)
+    planner_reload_context = (
+        defer_planner_reload() if callable(defer_planner_reload) else nullcontext()
     )
-    runtime_cwd = resolve_runtime_cwd_fn(
-        getattr(tools, "WORKSPACE_ROOT", None) or getattr(tools, "PROJECT_ROOT", None)
-    )
-    runtime_cwd = set_tools_workspace_root_fn(runtime_cwd)
-    agent_plugin_factory_setter = getattr(agent, "set_plugin_manager_factory", None)
-    if callable(agent_plugin_factory_setter):
-        agent_plugin_factory_setter(lambda: getattr(tools, "_plugin_manager", None))
-    agent_setter = getattr(agent, "set_cwd", None)
-    if callable(agent_setter):
-        runtime_cwd = Path(agent_setter(runtime_cwd)).resolve()
-    return runtime_cwd
+    with planner_reload_context:
+        agent_runtime_policy_setter = getattr(agent, "set_runtime_policy_overrides", None)
+        if callable(agent_runtime_policy_setter):
+            agent_runtime_policy_setter(runtime_policy_override_payload_fn(runtime_policy))
+        configure_runtime_tool_hooks_fn(
+            tools=tools,
+            shell_activity_callback=shell_activity_callback,
+            shell_activity_suppressed_getter=shell_activity_suppressed_getter,
+            shell_cancel_event_getter=shell_cancel_event_getter,
+            runtime_policy_status_getter=runtime_policy_status_getter,
+            request_patch_approval_fn=request_patch_approval_fn,
+        )
+        runtime_cwd = resolve_runtime_cwd_fn(
+            getattr(tools, "WORKSPACE_ROOT", None) or getattr(tools, "PROJECT_ROOT", None)
+        )
+        runtime_cwd = set_tools_workspace_root_fn(runtime_cwd)
+        agent_plugin_factory_setter = getattr(agent, "set_plugin_manager_factory", None)
+        agent_lazy_pending = getattr(agent, "_planner", None) is None and bool(
+            getattr(agent, "_planner_lazy_enabled", False)
+        )
+        if agent_lazy_pending:
+            agent._plugin_manager_factory = lambda: getattr(tools, "_plugin_manager", None)
+            agent.cwd = runtime_cwd
+        else:
+            if callable(agent_plugin_factory_setter):
+                agent_plugin_factory_setter(lambda: getattr(tools, "_plugin_manager", None))
+            agent_setter = getattr(agent, "set_cwd", None)
+            if callable(agent_setter):
+                runtime_cwd = Path(agent_setter(runtime_cwd)).resolve()
+        return runtime_cwd
 
 
 def runtime_cwd_state(
@@ -85,12 +99,22 @@ def runtime_cwd_state(
     set_tools_workspace_root_fn: Callable[[Path], Path],
     agent_setter: Callable[[Path], Any] | None,
 ) -> tuple[Path, dict[str, Any]]:
-    runtime_cwd = apply_runtime_cwd_fn(
-        cwd=cwd,
-        resolve_runtime_cwd_fn=resolve_runtime_cwd_fn,
-        set_tools_workspace_root_fn=set_tools_workspace_root_fn,
-        agent_setter=agent_setter,
-    )
+    if callable(agent_setter):
+        defer_planner_reload = getattr(
+            getattr(agent_setter, "__self__", None), "defer_planner_reload", None
+        )
+        planner_reload_context = (
+            defer_planner_reload() if callable(defer_planner_reload) else nullcontext()
+        )
+    else:
+        planner_reload_context = nullcontext()
+    with planner_reload_context:
+        runtime_cwd = apply_runtime_cwd_fn(
+            cwd=cwd,
+            resolve_runtime_cwd_fn=resolve_runtime_cwd_fn,
+            set_tools_workspace_root_fn=set_tools_workspace_root_fn,
+            agent_setter=agent_setter,
+        )
     return runtime_cwd, {
         "_background_task_adapter_cache": None,
         "_background_task_adapter_cwd": "",

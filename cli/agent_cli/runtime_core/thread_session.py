@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from cli.agent_cli.models_turn_events_runtime import normalized_plan_payload
+from cli.agent_cli.startup_debug import startup_timer
 
 
 def _history_validation_error(index: int, message: str) -> ValueError:
@@ -91,41 +92,48 @@ def validate_resume_history(history: list[dict[str, Any]]) -> list[dict[str, Any
 def start_thread(
     runtime: Any, *, name: str | None = None, cwd: str | None = None
 ) -> dict[str, Any]:
-    if runtime.thread_store is None:
-        raise RuntimeError("thread store not configured")
-    if cwd:
-        runtime.set_cwd(Path(cwd))
-    reset_delegated_state = getattr(runtime, "_reset_delegated_agent_state", None)
-    if callable(reset_delegated_state):
-        try:
-            reset_delegated_state()
-        except Exception:
-            pass
-    provider_status = runtime.agent.provider_status()
-    record = runtime.thread_store.start_thread(
-        name=name,
-        cwd=str(getattr(runtime, "cwd", "")) if getattr(runtime, "cwd", None) is not None else None,
-        provider_status=provider_status,
-        runtime_policy_status=runtime.runtime_policy_status(),
-    )
-    runtime.thread_id = record.thread_id
-    runtime.thread_name = record.name
-    runtime.history = []
-    runtime._base_history = []
-    runtime.history_turns = []
-    runtime.rollout_items = []
-    runtime.reference_context_items = []
-    runtime._planner_input_items = []
-    runtime._environment_context_snapshot = {}
-    runtime._environment_context_history = []
-    runtime._workspace_context_snapshot = {}
-    runtime._memory_context_snapshot = {}
-    runtime._context_update_history = []
-    runtime.latest_task_plan = None
-    runtime.selected_conversation = None
-    runtime.pending_send_text = ""
-    runtime.send_ready = False
-    return record.to_dict()
+    with startup_timer("runtime_core.start_thread"):
+        if runtime.thread_store is None:
+            raise RuntimeError("thread store not configured")
+        if cwd:
+            runtime.set_cwd(Path(cwd))
+        reset_delegated_state = getattr(runtime, "_reset_delegated_agent_state", None)
+        if callable(reset_delegated_state):
+            try:
+                reset_delegated_state()
+            except Exception:
+                pass
+        with startup_timer("runtime_core.start_thread.provider_status"):
+            provider_status = runtime.agent.provider_status()
+        with startup_timer("runtime_core.start_thread.store"):
+            record = runtime.thread_store.start_thread(
+                name=name,
+                cwd=(
+                    str(getattr(runtime, "cwd", ""))
+                    if getattr(runtime, "cwd", None) is not None
+                    else None
+                ),
+                provider_status=provider_status,
+                runtime_policy_status=runtime.runtime_policy_status(),
+            )
+        runtime.thread_id = record.thread_id
+        runtime.thread_name = record.name
+        runtime.history = []
+        runtime._base_history = []
+        runtime.history_turns = []
+        runtime.rollout_items = []
+        runtime.reference_context_items = []
+        runtime._planner_input_items = []
+        runtime._environment_context_snapshot = {}
+        runtime._environment_context_history = []
+        runtime._workspace_context_snapshot = {}
+        runtime._memory_context_snapshot = {}
+        runtime._context_update_history = []
+        runtime.latest_task_plan = None
+        runtime.selected_conversation = None
+        runtime.pending_send_text = ""
+        runtime.send_ready = False
+        return record.to_dict()
 
 
 def list_threads(runtime: Any, *, limit: int = 50, cwd: str | None = None) -> list[dict[str, Any]]:
@@ -199,98 +207,111 @@ def resume_thread(
     path: str | None = None,
     history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    if runtime.thread_store is None:
-        raise RuntimeError("thread store not configured")
-    _validate_running_thread_resume_conflicts(
-        runtime,
-        thread_id=thread_id,
-        path=path,
-        history=history,
-    )
-    if history is not None:
-        validated_history = validate_resume_history(history)
-        provider_status = {}
-        try:
-            provider_status = dict(runtime.agent.provider_status() or {})
-        except Exception:
-            provider_status = {}
-        payload = runtime.thread_store.resume_thread_from_history(
-            validated_history,
-            cwd=(
-                str(getattr(runtime, "cwd", ""))
-                if getattr(runtime, "cwd", None) is not None
-                else None
-            ),
-            provider_status=provider_status,
-            runtime_policy_status=runtime.runtime_policy_status(),
+    with startup_timer("runtime_core.resume_thread"):
+        if runtime.thread_store is None:
+            raise RuntimeError("thread store not configured")
+        _validate_running_thread_resume_conflicts(
+            runtime,
+            thread_id=thread_id,
+            path=path,
+            history=history,
         )
-    elif str(path or "").strip():
-        payload = runtime.thread_store.resume_thread_from_path(str(path or "").strip())
-    else:
-        normalized_thread_id = str(thread_id or "").strip()
-        if not normalized_thread_id:
-            raise ValueError("thread_id is required when history and path are absent")
-        payload = runtime.thread_store.resume_thread(normalized_thread_id)
-    record = payload.get("thread") or {}
-    state = payload.get("state") or {}
-    reset_delegated_state = getattr(runtime, "_reset_delegated_agent_state", None)
-    if callable(reset_delegated_state):
-        try:
-            reset_delegated_state()
-        except Exception:
-            pass
-    runtime.thread_id = str(record.get("thread_id") or thread_id)
-    runtime.thread_name = str(record.get("name") or runtime.thread_id)
-    record_cwd = str(record.get("cwd") or "").strip()
-    if record_cwd:
-        try:
-            runtime.set_cwd(record_cwd)
-        except Exception:
-            pass
-    runtime.history = list(payload.get("history") or [])
-    runtime._base_history = list(payload.get("base_history") or [])
-    runtime.history_turns = list(payload.get("turns") or [])
-    runtime.rollout_items = list(payload.get("rollout_items") or [])
-    runtime._planner_input_items = list(payload.get("planner_input_items") or [])
-    runtime.reference_context_items = list(payload.get("context_items") or [])
-    runtime.selected_conversation = runtime._state_value(state, "selected_conversation")
-    runtime.pending_send_text = runtime._state_value(state, "pending_send_text") or ""
-    runtime.send_ready = str(state.get("send_ready") or "").strip().lower() == "true"
-    restored_task_plan = normalized_plan_payload(state.get("latest_task_plan"))
-    runtime.latest_task_plan = restored_task_plan or None
-    restore_workspace_context = getattr(runtime, "_restore_workspace_context_state", None)
-    if callable(restore_workspace_context):
-        try:
-            restore_workspace_context(state, runtime.reference_context_items)
-        except Exception:
-            pass
-    restore_environment_context = getattr(runtime, "_restore_environment_context_state", None)
-    if callable(restore_environment_context):
-        try:
-            restore_environment_context(state)
-        except Exception:
-            pass
-    restore_memory_context = getattr(runtime, "_restore_memory_context_state", None)
-    if callable(restore_memory_context):
-        try:
-            restore_memory_context(state)
-        except Exception:
-            pass
-    restore_file_read_guard = getattr(runtime, "_restore_file_read_guard_state", None)
-    if callable(restore_file_read_guard):
-        try:
-            restore_file_read_guard(state)
-        except Exception:
-            pass
-    restore_runtime_policy(runtime, state)
-    restore_provider_state(runtime, state)
-    restore_delegated_state = getattr(runtime, "_restore_delegated_agent_state", None)
-    if callable(restore_delegated_state):
-        try:
-            restore_delegated_state(state)
-        except Exception:
-            pass
-    return payload
+        if history is not None:
+            validated_history = validate_resume_history(history)
+            provider_status = {}
+            try:
+                provider_status = dict(runtime.agent.provider_status() or {})
+            except Exception:
+                provider_status = {}
+            with startup_timer("runtime_core.resume_thread.store_from_history"):
+                payload = runtime.thread_store.resume_thread_from_history(
+                    validated_history,
+                    cwd=(
+                        str(getattr(runtime, "cwd", ""))
+                        if getattr(runtime, "cwd", None) is not None
+                        else None
+                    ),
+                    provider_status=provider_status,
+                    runtime_policy_status=runtime.runtime_policy_status(),
+                )
+        elif str(path or "").strip():
+            with startup_timer("runtime_core.resume_thread.store_from_path"):
+                payload = runtime.thread_store.resume_thread_from_path(str(path or "").strip())
+        else:
+            normalized_thread_id = str(thread_id or "").strip()
+            if not normalized_thread_id:
+                raise ValueError("thread_id is required when history and path are absent")
+            with startup_timer("runtime_core.resume_thread.store"):
+                payload = runtime.thread_store.resume_thread(normalized_thread_id)
+        record = payload.get("thread") or {}
+        state = payload.get("state") or {}
+        reset_delegated_state = getattr(runtime, "_reset_delegated_agent_state", None)
+        if callable(reset_delegated_state):
+            try:
+                reset_delegated_state()
+            except Exception:
+                pass
+        runtime.thread_id = str(record.get("thread_id") or thread_id)
+        runtime.thread_name = str(record.get("name") or runtime.thread_id)
+        record_cwd = str(record.get("cwd") or "").strip()
+        if record_cwd:
+            with startup_timer("runtime_core.resume_thread.set_cwd"):
+                try:
+                    runtime.set_cwd(record_cwd)
+                except Exception:
+                    pass
+        with startup_timer("runtime_core.resume_thread.assign_history"):
+            runtime.history = list(payload.get("history") or [])
+            runtime._base_history = list(payload.get("base_history") or [])
+            runtime.history_turns = list(payload.get("turns") or [])
+            runtime.rollout_items = list(payload.get("rollout_items") or [])
+            runtime._planner_input_items = list(payload.get("planner_input_items") or [])
+            runtime.reference_context_items = list(payload.get("context_items") or [])
+        runtime.selected_conversation = runtime._state_value(state, "selected_conversation")
+        runtime.pending_send_text = runtime._state_value(state, "pending_send_text") or ""
+        runtime.send_ready = str(state.get("send_ready") or "").strip().lower() == "true"
+        restored_task_plan = normalized_plan_payload(state.get("latest_task_plan"))
+        runtime.latest_task_plan = restored_task_plan or None
+        restore_workspace_context = getattr(runtime, "_restore_workspace_context_state", None)
+        if callable(restore_workspace_context):
+            with startup_timer("runtime_core.resume_thread.restore_workspace_context"):
+                try:
+                    restore_workspace_context(state, runtime.reference_context_items)
+                except Exception:
+                    pass
+        restore_environment_context = getattr(runtime, "_restore_environment_context_state", None)
+        if callable(restore_environment_context):
+            with startup_timer("runtime_core.resume_thread.restore_environment_context"):
+                try:
+                    restore_environment_context(state)
+                except Exception:
+                    pass
+        restore_memory_context = getattr(runtime, "_restore_memory_context_state", None)
+        if callable(restore_memory_context):
+            with startup_timer("runtime_core.resume_thread.restore_memory_context"):
+                try:
+                    restore_memory_context(state)
+                except Exception:
+                    pass
+        restore_file_read_guard = getattr(runtime, "_restore_file_read_guard_state", None)
+        if callable(restore_file_read_guard):
+            with startup_timer("runtime_core.resume_thread.restore_file_read_guard"):
+                try:
+                    restore_file_read_guard(state)
+                except Exception:
+                    pass
+        with startup_timer("runtime_core.resume_thread.restore_runtime_policy"):
+            restore_runtime_policy(runtime, state)
+        with startup_timer("runtime_core.resume_thread.restore_provider_state"):
+            restore_provider_state(runtime, state)
+        restore_delegated_state = getattr(runtime, "_restore_delegated_agent_state", None)
+        if callable(restore_delegated_state):
+            with startup_timer("runtime_core.resume_thread.restore_delegated_state"):
+                try:
+                    restore_delegated_state(state)
+                except Exception:
+                    pass
+        return payload
 
 
 def restore_runtime_policy(runtime: Any, state: dict[str, Any]) -> None:

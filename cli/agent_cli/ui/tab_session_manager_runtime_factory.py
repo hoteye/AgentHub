@@ -4,15 +4,20 @@ import asyncio
 import copy
 import logging
 import threading
+from types import SimpleNamespace
 from typing import Any
 
 from cli.agent_cli.runtime_kernels.base import (
     ForkSessionRequest,
     KernelEngine,
+    KernelSession,
     ResumeSessionRequest,
     StartSessionRequest,
 )
+from cli.agent_cli.startup_debug import startup_timer
+from cli.agent_cli.ui.codex_sidecar_metadata import runtime_policy_metadata_for_sidecar
 from cli.agent_cli.ui.tab_session_manager_state import _tab_session_engine_for_runtime
+from cli.agent_cli.ui.tab_session_restore_prefetch import CodexSidecarRestorePrefetch
 
 logger = logging.getLogger("cli.agent_cli.ui.tab_session_manager")
 
@@ -97,29 +102,8 @@ def _build_codex_sidecar_tab_runtime(app: Any, tab_id: str) -> Any | None:
 
 
 def _runtime_policy_metadata_for_sidecar(app: Any) -> dict[str, Any]:
-    from cli.agent_cli.runtime_kernels.codex_sidecar.dynamic_tools import (
-        codex_visible_child_dynamic_tool_metadata,
-    )
-    from cli.agent_cli.runtime_policy import RuntimePolicy
-
     runtime_policy = getattr(getattr(app, "runtime", None), "runtime_policy", None)
-    if runtime_policy is None:
-        runtime_policy = RuntimePolicy.normalized()
-    try:
-        runtime_policy_status = dict(runtime_policy.to_status())
-    except Exception:
-        runtime_policy_status = {}
-    metadata: dict[str, Any] = {
-        "runtime_policy": runtime_policy_status,
-    }
-    approval_policy = str(runtime_policy_status.get("approval_policy") or "").strip()
-    sandbox_mode = str(runtime_policy_status.get("sandbox_mode") or "").strip()
-    if approval_policy:
-        metadata["approvalPolicy"] = approval_policy
-    if sandbox_mode:
-        metadata["sandbox"] = sandbox_mode
-    metadata.update(codex_visible_child_dynamic_tool_metadata())
-    return metadata
+    return runtime_policy_metadata_for_sidecar(runtime_policy)
 
 
 def _codex_sidecar_kernel_for_app(app: Any) -> Any | None:
@@ -168,25 +152,96 @@ def _runtime_adapter_for_codex_session(app: Any, tab_id: str, kernel: Any, sessi
     return runtime
 
 
+def _placeholder_codex_sidecar_tab_runtime(app: Any, tab_info: Any) -> Any | None:
+    thread_id = str(getattr(tab_info, "thread_id", "") or "").strip()
+    if not thread_id:
+        return None
+    session_id = str(getattr(tab_info, "kernel_session_id", "") or thread_id).strip() or thread_id
+    provider_name = str(getattr(tab_info, "provider_name", "") or "").strip()
+    provider_model = str(getattr(tab_info, "provider_model", "") or "").strip()
+    kernel_session = KernelSession(
+        engine="codex_sidecar",
+        session_id=session_id,
+        thread_id=thread_id,
+        thread_name=str(getattr(tab_info, "thread_name", "") or thread_id),
+        cwd=str(getattr(tab_info, "cwd", "") or getattr(app, "_workspace_root", "")),
+        model=provider_model,
+        model_provider=provider_name,
+        metadata={"deferred_restore": True},
+    )
+    agent = SimpleNamespace(
+        provider_status=lambda: {
+            "provider_ready": "true",
+            "provider_name": provider_name or "codex",
+            "provider_public_name": provider_name or "codex",
+            "provider_model": provider_model or "-",
+            "provider_tools": "codex-sidecar",
+            "provider_label": f"{provider_name or 'codex'} | {provider_model or '-'} | codex-sidecar",
+            "provider_base_url": "-",
+            "provider_source": "codex_sidecar",
+            "kernel_engine": "codex_sidecar",
+            "kernel_session_id": session_id,
+            "thread_id": thread_id,
+        }
+    )
+    return SimpleNamespace(
+        agent=agent,
+        cwd=kernel_session.cwd,
+        deferred_restore=True,
+        history=[],
+        history_turns=[],
+        kernel_session=kernel_session,
+        thread_id=thread_id,
+        thread_name=kernel_session.thread_name,
+        turn_results=[],
+    )
+
+
 def _resume_codex_sidecar_tab_runtime(app: Any, tab_info: Any) -> Any | None:
-    kernel = _codex_sidecar_kernel_for_app(app)
+    tab_label = str(getattr(tab_info, "tab_id", "") or "unknown")
+    prefetched = _consume_codex_sidecar_restore_prefetch(app, tab_info)
+    if prefetched is not None:
+        with startup_timer(f"codex_sidecar.restore_tab.{tab_label}.prefetch_wait"):
+            prefetched.wait()
+        if prefetched.kernel is not None and prefetched.session is not None:
+            app._codex_sidecar_kernel = prefetched.kernel
+            with startup_timer(f"codex_sidecar.restore_tab.{tab_label}.runtime_adapter"):
+                return _runtime_adapter_for_codex_session(
+                    app,
+                    tab_info.tab_id,
+                    prefetched.kernel,
+                    prefetched.session,
+                )
+        if prefetched.error is not None:
+            _record_codex_sidecar_restore_error(
+                app,
+                tab_id=str(getattr(tab_info, "tab_id", "") or ""),
+                thread_id=str(getattr(tab_info, "thread_id", "") or ""),
+                error=prefetched.error,
+            )
+    with startup_timer(f"codex_sidecar.restore_tab.{tab_label}.kernel"):
+        kernel = _codex_sidecar_kernel_for_app(app)
     if kernel is None:
         return None
     thread_id = str(getattr(tab_info, "thread_id", "") or "").strip()
     if not thread_id:
         return None
-    metadata = _runtime_policy_metadata_for_sidecar(app)
+    with startup_timer(f"codex_sidecar.restore_tab.{tab_label}.metadata"):
+        metadata = _runtime_policy_metadata_for_sidecar(app)
     try:
-        session = _run_coro_blocking(
-            kernel.resume_session(
-                ResumeSessionRequest(
-                    session_id=str(getattr(tab_info, "kernel_session_id", "") or thread_id),
-                    thread_id=thread_id,
-                    cwd=str(getattr(tab_info, "cwd", "") or getattr(app, "_workspace_root", "")),
-                    metadata=metadata,
+        with startup_timer(f"codex_sidecar.restore_tab.{tab_label}.resume_session"):
+            session = _run_coro_blocking(
+                kernel.resume_session(
+                    ResumeSessionRequest(
+                        session_id=str(getattr(tab_info, "kernel_session_id", "") or thread_id),
+                        thread_id=thread_id,
+                        cwd=str(
+                            getattr(tab_info, "cwd", "") or getattr(app, "_workspace_root", "")
+                        ),
+                        metadata=metadata,
+                    )
                 )
             )
-        )
     except Exception as exc:
         _record_codex_sidecar_restore_error(
             app,
@@ -195,7 +250,31 @@ def _resume_codex_sidecar_tab_runtime(app: Any, tab_info: Any) -> Any | None:
             error=exc,
         )
         return None
-    return _runtime_adapter_for_codex_session(app, tab_info.tab_id, kernel, session)
+    with startup_timer(f"codex_sidecar.restore_tab.{tab_label}.runtime_adapter"):
+        return _runtime_adapter_for_codex_session(app, tab_info.tab_id, kernel, session)
+
+
+def _consume_codex_sidecar_restore_prefetch(
+    app: Any,
+    tab_info: Any,
+) -> CodexSidecarRestorePrefetch | None:
+    prefetch = getattr(app, "_codex_sidecar_restore_prefetch", None)
+    if not isinstance(prefetch, CodexSidecarRestorePrefetch):
+        return None
+    tab_id = str(getattr(tab_info, "tab_id", "") or "").strip()
+    thread_id = str(getattr(tab_info, "thread_id", "") or "").strip()
+    kernel_session_id = str(getattr(tab_info, "kernel_session_id", "") or thread_id).strip()
+    if (
+        prefetch.tab_id != tab_id
+        or prefetch.thread_id != thread_id
+        or prefetch.kernel_session_id != (kernel_session_id or thread_id)
+    ):
+        return None
+    try:
+        app._codex_sidecar_restore_prefetch = None
+    except Exception:
+        pass
+    return prefetch
 
 
 def _build_runtime_for_engine(app: Any, tab_id: str, engine: KernelEngine) -> Any | None:

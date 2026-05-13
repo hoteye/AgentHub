@@ -16,7 +16,8 @@ else:
     import termios
     import tty
     from codecs import getincrementaldecoder
-    from threading import Thread
+    from concurrent.futures import Future, TimeoutError
+    from threading import Thread, current_thread, main_thread
 
     from textual import events
     from textual._loop import loop_last
@@ -34,11 +35,78 @@ else:
     def _is_terminal_input_closed_error(exc: BaseException) -> bool:
         return isinstance(exc, OSError) and getattr(exc, "errno", None) in {
             errno.EBADF,
-            errno.EIO,
         }
+
+    def _is_terminal_input_transient_error(exc: BaseException) -> bool:
+        return isinstance(exc, OSError) and getattr(exc, "errno", None) == errno.EIO
 
     class AgentHubLinuxDriver(LinuxDriver):
         """Linux driver variant that avoids self-stopping on tty handoff checks."""
+
+        def _recover_terminal_foreground(self) -> bool:
+            if current_thread() is main_thread():
+                return self._recover_terminal_foreground_now()
+            loop = getattr(self, "_agenthub_event_loop", None)
+            if loop is None or loop.is_closed():
+                startup_log("driver.input_recover.no_event_loop")
+                return False
+            result: Future[bool] = Future()
+
+            def _recover_on_event_loop() -> None:
+                try:
+                    result.set_result(self._recover_terminal_foreground_now())
+                except Exception as exc:
+                    startup_log(f"driver.input_recover.unexpected_error error={exc!r}")
+                    result.set_result(False)
+
+            try:
+                loop.call_soon_threadsafe(_recover_on_event_loop)
+                return bool(result.result(timeout=0.5))
+            except TimeoutError:
+                startup_log("driver.input_recover.timeout")
+                return False
+            except Exception as exc:
+                startup_log(f"driver.input_recover.schedule_error error={exc!r}")
+                return False
+
+        def _recover_terminal_foreground_now(self) -> bool:
+            if not os.isatty(self.fileno):
+                return False
+            try:
+                foreground_pgrp = os.tcgetpgrp(self.fileno)
+            except OSError as exc:
+                startup_log(f"driver.input_recover.tcgetpgrp_error error={exc!r}")
+                return False
+            current_pgrp = os.getpgrp()
+            if foreground_pgrp == current_pgrp:
+                startup_log(
+                    "driver.input_recover.already_foreground "
+                    f"pgrp={current_pgrp} tpgid={foreground_pgrp}"
+                )
+                return True
+            previous_ttou = signal.getsignal(signal.SIGTTOU)
+            try:
+                signal.signal(signal.SIGTTOU, signal.SIG_IGN)
+                os.tcsetpgrp(self.fileno, current_pgrp)
+            except OSError as exc:
+                startup_log(
+                    "driver.input_recover.tcsetpgrp_error "
+                    f"pgrp={current_pgrp} foreground={foreground_pgrp} error={exc!r}"
+                )
+                return False
+            finally:
+                try:
+                    signal.signal(signal.SIGTTOU, previous_ttou)
+                except Exception:
+                    pass
+            try:
+                recovered_tpgid = os.tcgetpgrp(self.fileno)
+            except OSError:
+                recovered_tpgid = current_pgrp
+            startup_log(
+                "driver.input_recover.tcsetpgrp_ok " f"pgrp={current_pgrp} tpgid={recovered_tpgid}"
+            )
+            return True
 
         def run_input_thread(self) -> None:
             """Wait for input and dispatch events without crashing on bad bytes."""
@@ -68,6 +136,12 @@ else:
                                     f"errno={getattr(exc, 'errno', None)}"
                                 )
                                 return False
+                            if _is_terminal_input_transient_error(exc):
+                                startup_log(
+                                    "driver.input_thread.transient_error "
+                                    f"errno={getattr(exc, 'errno', None)}"
+                                )
+                                return self._recover_terminal_foreground()
                             raise
                         unicode_data = decode(raw_data, final=final and last)
                         if not unicode_data:
@@ -169,6 +243,7 @@ else:
                 startup_log(f"driver.tty_state.after_probe_error error={exc!r}")
 
             loop = asyncio.get_running_loop()
+            self._agenthub_event_loop = loop
 
             def send_size_event() -> None:
                 terminal_size = self._get_terminal_size()

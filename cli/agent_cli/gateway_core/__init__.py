@@ -15,7 +15,11 @@ from .models import (
 )
 from .registry import GatewayRegistry
 from .router import RouteDecision, route_event
-from .state_store import InMemoryGatewayStateStore, JsonlGatewayStateStore
+from .state_store import (
+    InMemoryGatewayStateStore,
+    JsonlGatewayStateStore,
+    LazyJsonlGatewayStateStore,
+)
 from .workflows import create_workflow_run
 
 __all__ = [
@@ -27,6 +31,7 @@ __all__ = [
     "GatewayRegistry",
     "InMemoryGatewayStateStore",
     "JsonlGatewayStateStore",
+    "LazyJsonlGatewayStateStore",
     "PolicyRegistration",
     "RouteDecision",
     "TriggerRegistration",

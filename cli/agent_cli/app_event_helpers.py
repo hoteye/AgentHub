@@ -12,6 +12,15 @@ from cli.agent_cli.startup_debug import startup_log
 from cli.agent_cli.ui.status_indicator import ANIMATION_INTERVAL_SECONDS
 
 
+def _start_tab_workers(mgr: Any) -> None:
+    for tab_id in list(getattr(mgr, "_tab_order", []) or []):
+        session = mgr.get(tab_id)
+        if session is not None and (
+            session.request_worker_task is None or session.request_worker_task.done()
+        ):
+            mgr._start_worker_task(tab_id)
+
+
 def _startup_provider_status(app: Any) -> dict[str, Any]:
     runtime = getattr(app, "runtime", None)
     agent = getattr(runtime, "agent", None)
@@ -99,12 +108,7 @@ def on_mount(app: Any) -> None:
     app._install_local_request_user_input_handler()
     mgr = getattr(app, "_tab_manager", None)
     if mgr is not None:
-        for tab_id in list(getattr(mgr, "_tab_order", []) or []):
-            session = mgr.get(tab_id)
-            if session is not None and (
-                session.request_worker_task is None or session.request_worker_task.done()
-            ):
-                mgr._start_worker_task(tab_id)
+        _start_tab_workers(mgr)
         if bool(getattr(app, "_tab_manifest_restored", False)):
             mgr._restore_tab_state(mgr.active_tab_id)
         mgr._start_scroll_capture_timer()
@@ -180,6 +184,95 @@ def on_key(app: Any, event: Any) -> None:
     if event.key == "escape" and app.handle_escape_key():
         event.stop()
         event.prevent_default()
+        return
+    _route_prompt_key_to_composer(app, event)
+
+
+def _route_prompt_key_to_composer(app: Any, event: Any) -> bool:
+    if str(getattr(app, "_screen_mode", "prompt") or "prompt") != "prompt":
+        return False
+    if _has_active_keyboard_overlay(app):
+        return False
+    try:
+        from cli.agent_cli.ui.composer import PromptComposer
+
+        composer = app.query_one("#prompt_composer", PromptComposer)
+    except Exception:
+        return False
+    focused = getattr(app, "focused", None)
+    widget = focused
+    while widget is not None:
+        if widget is composer:
+            return False
+        widget = getattr(widget, "parent", None)
+    if not _is_prompt_composer_key_candidate(event):
+        return False
+    try:
+        composer.focus()
+        composer.on_key(event)
+    except Exception:
+        return False
+    return True
+
+
+def _has_active_keyboard_overlay(app: Any) -> bool:
+    for attr_name in ("_request_user_input_overlay", "_approval_overlay", "_setup_overlay"):
+        overlay = getattr(app, attr_name, None)
+        if bool(getattr(overlay, "is_active", False)):
+            return True
+    return False
+
+
+def _is_prompt_composer_key_candidate(event: Any) -> bool:
+    if bool(getattr(event, "is_printable", False)) and str(getattr(event, "character", "") or ""):
+        return True
+    key = str(getattr(event, "key", "") or "")
+    aliases = {
+        str(item or "") for item in (key, *(getattr(event, "aliases", []) or [])) if str(item or "")
+    }
+    return bool(
+        aliases
+        & {
+            "alt+b",
+            "alt+enter",
+            "alt+f",
+            "backspace",
+            "ctrl+a",
+            "ctrl+b",
+            "ctrl+d",
+            "ctrl+e",
+            "ctrl+f",
+            "ctrl+j",
+            "ctrl+left",
+            "ctrl+m",
+            "ctrl+n",
+            "ctrl+p",
+            "ctrl+right",
+            "ctrl+shift+z",
+            "ctrl+u",
+            "ctrl+v",
+            "ctrl+x",
+            "ctrl+y",
+            "ctrl+z",
+            "delete",
+            "down",
+            "end",
+            "enter",
+            "home",
+            "left",
+            "meta+enter",
+            "right",
+            "shift+down",
+            "shift+end",
+            "shift+enter",
+            "shift+home",
+            "shift+left",
+            "shift+right",
+            "shift+up",
+            "tab",
+            "up",
+        }
+    )
 
 
 def on_mouse_down(app: Any, event: Any) -> None:

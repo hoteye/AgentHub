@@ -100,8 +100,9 @@ async def _probe_tab_lifecycle_and_overflow() -> None:
         assert bar._close_hitboxes == []
         visible_height = int(getattr(bar.size, "height", 0) or 0)
         rail_lines = [line for line in rendered.splitlines() if line]
-        assert all(len(line) == 3 for line in rail_lines)
-        assert set("".join(rail_lines)) <= set(" 123456▎")
+        rail_width = max(1, int(getattr(getattr(bar, "size", None), "width", 0) or 0))
+        assert all(len(line) == rail_width for line in rail_lines)
+        assert set("".join(rail_lines)) <= set(" 123456n▕🭾🭿▔▁")
         if visible_height > len(bar._tab_spans) * 3:
             assert bar._tab_spans[0][1] > 0
             assert rendered.startswith("\n" * bar._tab_spans[0][1])

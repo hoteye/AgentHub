@@ -13,6 +13,7 @@ from cli.agent_cli.runtime_kernels.base import (
     ResumeSessionRequest,
     StartSessionRequest,
 )
+from cli.agent_cli.startup_debug import startup_profile_log, startup_timer
 from cli.agent_cli.ui.tab_session_manager_models import RUNNING_FORK_NOTICE, TabSession
 from cli.agent_cli.ui.tab_session_manager_runtime_factory import (
     _build_codex_sidecar_tab_runtime,
@@ -23,6 +24,7 @@ from cli.agent_cli.ui.tab_session_manager_runtime_factory import (
     _fork_codex_sidecar_tab_runtime,
     _fork_tab_runtime,
     _is_codex_sidecar_runtime,
+    _placeholder_codex_sidecar_tab_runtime,
     _record_codex_sidecar_restore_error,
     _resume_codex_sidecar_tab_runtime,
     _run_coro_blocking,
@@ -30,6 +32,7 @@ from cli.agent_cli.ui.tab_session_manager_runtime_factory import (
     _runtime_policy_metadata_for_sidecar,
     _should_fallback_to_start_for_codex_fork,
 )
+from cli.agent_cli.ui.tab_session_restore_prefetch import CodexSidecarRestorePrefetch
 from cli.agent_cli.ui.tab_session_manager_state import (
     _HISTORY_TEXT_BLOCK_TYPES,
     _codex_turns_to_history_turns,
@@ -174,21 +177,24 @@ class TabSessionManager:
         return notice
 
     def restore_from_manifest_if_available(self, source_runtime: Any) -> bool:
-        self._clear_manifest_restore_notice()
-        if not tab_manifest_enabled_for_runtime(source_runtime):
-            return False
-        manifest_path = self._manifest_path or tab_manifest_path_for_runtime(source_runtime)
-        self.configure_manifest_path(manifest_path)
-        if not manifest_path.exists():
-            return False
-        manifest = load_tab_session_manifest(manifest_path)
-        if manifest is None:
-            self._set_manifest_restore_notice(
-                "system.tab_manifest_restore_failed",
-                path=str(manifest_path),
-            )
-            return False
-        return self.restore_from_manifest(manifest, source_runtime=source_runtime)
+        with startup_timer("tabs.restore_manifest_if_available"):
+            self._clear_manifest_restore_notice()
+            if not tab_manifest_enabled_for_runtime(source_runtime):
+                return False
+            manifest_path = self._manifest_path or tab_manifest_path_for_runtime(source_runtime)
+            self.configure_manifest_path(manifest_path)
+            startup_profile_log(f"profile.tabs.manifest_path path={manifest_path}")
+            if not manifest_path.exists():
+                return False
+            with startup_timer("tabs.load_manifest"):
+                manifest = load_tab_session_manifest(manifest_path)
+            if manifest is None:
+                self._set_manifest_restore_notice(
+                    "system.tab_manifest_restore_failed",
+                    path=str(manifest_path),
+                )
+                return False
+            return self.restore_from_manifest(manifest, source_runtime=source_runtime)
 
     def restore_from_manifest(
         self,
@@ -196,48 +202,85 @@ class TabSessionManager:
         *,
         source_runtime: Any,
     ) -> bool:
-        self._clear_manifest_restore_notice()
-        restored: dict[str, TabSession] = {}
-        restored_order: list[str] = []
-        skipped_count = 0
-        source_thread_id = str(getattr(source_runtime, "thread_id", "") or "").strip()
+        with startup_timer("tabs.restore_manifest.prepare"):
+            self._clear_manifest_restore_notice()
+            restored: dict[str, TabSession] = {}
+            restored_order: list[str] = []
+            skipped_count = 0
+            source_thread_id = str(getattr(source_runtime, "thread_id", "") or "").strip()
+            active_manifest_tab_id = str(getattr(manifest, "active_tab_id", "") or "").strip()
+            active_tab_id_hint = (
+                active_manifest_tab_id
+                if any(tab_info.tab_id == active_manifest_tab_id for tab_info in manifest.tabs)
+                else str((manifest.tab_order or [""])[0] or "").strip()
+            )
+        startup_profile_log(
+            "profile.tabs.restore_manifest.info "
+            f"tabs={len(list(manifest.tabs or []))} active={active_tab_id_hint}"
+        )
         for tab_info in manifest.tabs:
             restore_engine = _manifest_tab_restore_engine(tab_info)
-            if restore_engine == "codex_sidecar":
-                runtime = _resume_codex_sidecar_tab_runtime(self._app, tab_info)
-            else:
-                runtime = source_runtime if tab_info.thread_id == source_thread_id else None
-            if runtime is None and restore_engine != "codex_sidecar":
-                runtime = _clone_tab_runtime(self._app, tab_info.tab_id, source_runtime)
+            tab_label = str(getattr(tab_info, "tab_id", "") or "unknown")
+            runtime_restore_pending = False
+            runtime_restore_prefetch = None
+            with startup_timer(f"tabs.restore_tab.{tab_label}.{restore_engine}.runtime"):
+                if restore_engine == "codex_sidecar" and tab_info.tab_id != active_tab_id_hint:
+                    runtime = _placeholder_codex_sidecar_tab_runtime(self._app, tab_info)
+                    runtime_restore_pending = runtime is not None
+                elif restore_engine == "codex_sidecar":
+                    runtime_restore_prefetch = self._consume_active_restore_prefetch(tab_info)
+                    if runtime_restore_prefetch is not None:
+                        runtime = _placeholder_codex_sidecar_tab_runtime(self._app, tab_info)
+                        runtime_restore_pending = runtime is not None
+                    else:
+                        runtime = _resume_codex_sidecar_tab_runtime(self._app, tab_info)
+                else:
+                    runtime = source_runtime if tab_info.thread_id == source_thread_id else None
+                if runtime is None and restore_engine != "codex_sidecar":
+                    runtime = _clone_tab_runtime(self._app, tab_info.tab_id, source_runtime)
             if runtime is None:
                 skipped_count += 1
                 continue
             if restore_engine != "codex_sidecar":
-                try:
-                    if str(getattr(runtime, "thread_id", "") or "").strip() != tab_info.thread_id:
-                        runtime.resume_thread(tab_info.thread_id)
-                    set_cwd = getattr(runtime, "set_cwd", None)
-                    if callable(set_cwd):
-                        set_cwd(getattr(source_runtime, "cwd", "") or getattr(runtime, "cwd", ""))
-                except Exception:
-                    if runtime is source_runtime:
-                        self._set_manifest_restore_notice(
-                            "system.tab_manifest_restore_failed",
-                            path=str(self._manifest_path or ""),
-                        )
-                        return False
-                    skipped_count += 1
-                    continue
+                with startup_timer(f"tabs.restore_tab.{tab_label}.resume_thread"):
+                    try:
+                        if (
+                            str(getattr(runtime, "thread_id", "") or "").strip()
+                            != tab_info.thread_id
+                        ):
+                            runtime.resume_thread(tab_info.thread_id)
+                        set_cwd = getattr(runtime, "set_cwd", None)
+                        if callable(set_cwd):
+                            set_cwd(
+                                getattr(source_runtime, "cwd", "") or getattr(runtime, "cwd", "")
+                            )
+                    except Exception:
+                        if runtime is source_runtime:
+                            self._set_manifest_restore_notice(
+                                "system.tab_manifest_restore_failed",
+                                path=str(self._manifest_path or ""),
+                            )
+                            return False
+                        skipped_count += 1
+                        continue
             elif str(getattr(runtime, "thread_id", "") or "").strip() != tab_info.thread_id:
                 skipped_count += 1
                 continue
-            if restore_engine == "codex_sidecar":
-                _hydrate_codex_runtime_from_session_metadata(runtime)
+            if restore_engine == "codex_sidecar" and not runtime_restore_pending:
+                with startup_timer(f"tabs.restore_tab.{tab_label}.codex_hydrate"):
+                    _hydrate_codex_runtime_from_session_metadata(runtime)
             self._bind_thread_store_update_active_getter(tab_info.tab_id, runtime)
             self._bind_visible_child_tab_backend(tab_info.tab_id, runtime)
-            _restore_tab_provider(runtime, tab_info)
-            entries, lines = _restore_runtime_transcript_snapshot(self._app, runtime)
-            queue = _create_request_queue()
+            with startup_timer(f"tabs.restore_tab.{tab_label}.provider"):
+                _restore_tab_provider(runtime, tab_info)
+            restore_transcript_now = tab_info.tab_id == active_tab_id_hint
+            if restore_transcript_now:
+                with startup_timer(f"tabs.restore_tab.{tab_label}.transcript"):
+                    entries, lines = _restore_runtime_transcript_snapshot(self._app, runtime)
+            else:
+                entries, lines = [], []
+            with startup_timer(f"tabs.restore_tab.{tab_label}.session"):
+                queue = _create_request_queue()
             restored[tab_info.tab_id] = TabSession(
                 tab_id=tab_info.tab_id,
                 thread_id=str(getattr(runtime, "thread_id", "") or tab_info.thread_id),
@@ -252,6 +295,10 @@ class TabSessionManager:
                 custom_label=tab_info.custom_label,
                 transcript_entries=entries,
                 transcript_lines=lines,
+                transcript_restore_pending=not restore_transcript_now or runtime_restore_pending,
+                runtime_restore_pending=runtime_restore_pending,
+                runtime_restore_prefetch=runtime_restore_prefetch,
+                manifest_tab_info=tab_info if runtime_restore_pending else None,
                 prompt_text=tab_info.prompt_text,
                 prompt_cursor_position=tab_info.prompt_cursor_position,
                 forked_from_tab_id=tab_info.forked_from_tab_id,
@@ -262,30 +309,31 @@ class TabSessionManager:
                 transcript_scroll_x=max(0, int(getattr(tab_info, "scroll_x", 0) or 0)),
                 transcript_scroll_y=max(0, int(getattr(tab_info, "scroll_y", 0) or 0)),
             )
-        for tab_id in list(manifest.tab_order or []):
-            if tab_id in restored and tab_id not in restored_order:
-                restored_order.append(tab_id)
-        for tab_id in restored:
-            if tab_id not in restored_order:
-                restored_order.append(tab_id)
-        if not restored_order:
-            self._set_manifest_restore_notice(
-                "system.tab_manifest_restore_failed",
-                path=str(self._manifest_path or ""),
+        with startup_timer("tabs.restore_manifest.finalize"):
+            for tab_id in list(manifest.tab_order or []):
+                if tab_id in restored and tab_id not in restored_order:
+                    restored_order.append(tab_id)
+            for tab_id in restored:
+                if tab_id not in restored_order:
+                    restored_order.append(tab_id)
+            if not restored_order:
+                self._set_manifest_restore_notice(
+                    "system.tab_manifest_restore_failed",
+                    path=str(self._manifest_path or ""),
+                )
+                return False
+            self._tabs = restored
+            self._tab_order = restored_order
+            self._active_tab_id = (
+                manifest.active_tab_id if manifest.active_tab_id in restored else restored_order[0]
             )
-            return False
-        self._tabs = restored
-        self._tab_order = restored_order
-        self._active_tab_id = (
-            manifest.active_tab_id if manifest.active_tab_id in restored else restored_order[0]
-        )
-        self._next_tab_serial = self._next_serial_from_tab_order(restored_order)
-        self._set_active_thread_id_for_tab(self._active_tab_id)
-        self._restore_tab_state(self._active_tab_id)
-        try:
-            self._app._tab_manifest_restored = True
-        except Exception:
-            pass
+            self._next_tab_serial = self._next_serial_from_tab_order(restored_order)
+            self._set_active_thread_id_for_tab(self._active_tab_id)
+            self._restore_tab_state(self._active_tab_id)
+            try:
+                self._app._tab_manifest_restored = True
+            except Exception:
+                pass
         if skipped_count:
             restore_errors = [
                 dict(item)
@@ -312,6 +360,28 @@ class TabSessionManager:
                 error_preview=error_preview,
             )
         return True
+
+    def _consume_active_restore_prefetch(
+        self,
+        tab_info: TabSessionManifestTab,
+    ) -> CodexSidecarRestorePrefetch | None:
+        prefetch = getattr(self._app, "_codex_sidecar_restore_prefetch", None)
+        if not isinstance(prefetch, CodexSidecarRestorePrefetch):
+            return None
+        tab_id = str(getattr(tab_info, "tab_id", "") or "").strip()
+        thread_id = str(getattr(tab_info, "thread_id", "") or "").strip()
+        kernel_session_id = str(getattr(tab_info, "kernel_session_id", "") or thread_id).strip()
+        if (
+            prefetch.tab_id != tab_id
+            or prefetch.thread_id != thread_id
+            or prefetch.kernel_session_id != (kernel_session_id or thread_id)
+        ):
+            return None
+        try:
+            self._app._codex_sidecar_restore_prefetch = None
+        except Exception:
+            pass
+        return prefetch
 
     @staticmethod
     def _next_serial_from_tab_order(tab_order: list[str]) -> int:
@@ -987,8 +1057,21 @@ class TabSessionManager:
     def switch_to_tab(self, tab_id: str) -> bool:
         if tab_id == self._active_tab_id or tab_id not in self._tabs:
             return False
+        previous_active_tab_id = self._active_tab_id
         self._save_current_state()
         self._active_tab_id = tab_id
+        if not self._ensure_runtime_restored(tab_id):
+            self._remove_unrestorable_tab(tab_id)
+            if previous_active_tab_id in self._tabs:
+                self._active_tab_id = previous_active_tab_id
+            elif self._tab_order:
+                self._active_tab_id = self._tab_order[0]
+            else:
+                return False
+            self._set_active_thread_id_for_tab(self._active_tab_id)
+            self._restore_tab_state(self._active_tab_id)
+            self.save_manifest()
+            return False
         self._set_active_thread_id_for_tab(tab_id)
         self._restore_tab_state(tab_id)
         self.save_manifest()
@@ -1044,6 +1127,17 @@ class TabSessionManager:
         session = self._tabs.get(tab_id)
         if session is None:
             return
+        if bool(getattr(session, "runtime_restore_pending", False)):
+            self._schedule_runtime_restore_poll(tab_id)
+        if session.transcript_restore_pending:
+            try:
+                entries, lines = _restore_runtime_transcript_snapshot(self._app, session.runtime)
+                session.transcript_entries = entries
+                session.transcript_lines = lines
+            except Exception:
+                pass
+            else:
+                session.transcript_restore_pending = False
         app = self._app
         app._busy = session.is_busy
         app._top_title_text = session.top_title_text
@@ -1083,6 +1177,7 @@ class TabSessionManager:
             else:
                 log = app.query_one("#main_log", TranscriptArea)
                 log.load_transcript(app._transcript_lines)
+                app._sync_transcript()
             self._restore_transcript_scroll(log, session)
         except Exception:
             pass
@@ -1100,6 +1195,164 @@ class TabSessionManager:
                 update_fn({})
             except Exception:
                 pass
+
+    def _ensure_runtime_restored(self, tab_id: str) -> bool:
+        session = self._tabs.get(tab_id)
+        if session is None or not bool(getattr(session, "runtime_restore_pending", False)):
+            return True
+        prefetch = getattr(session, "runtime_restore_prefetch", None)
+        if isinstance(prefetch, CodexSidecarRestorePrefetch) and not prefetch.wait(0):
+            self._schedule_runtime_restore_poll(tab_id)
+            return True
+        tab_info = getattr(session, "manifest_tab_info", None)
+        if tab_info is None:
+            session.runtime_restore_pending = False
+            return True
+        runtime = None
+        prefetch = getattr(session, "runtime_restore_prefetch", None)
+        if (
+            isinstance(prefetch, CodexSidecarRestorePrefetch)
+            and prefetch.kernel is not None
+            and prefetch.session is not None
+        ):
+            self._app._codex_sidecar_kernel = prefetch.kernel
+            runtime = _runtime_adapter_for_codex_session(
+                self._app,
+                tab_id,
+                prefetch.kernel,
+                prefetch.session,
+            )
+        elif isinstance(prefetch, CodexSidecarRestorePrefetch) and prefetch.error is not None:
+            _record_codex_sidecar_restore_error(
+                self._app,
+                tab_id=str(getattr(tab_info, "tab_id", "") or ""),
+                thread_id=str(getattr(tab_info, "thread_id", "") or ""),
+                error=prefetch.error,
+            )
+        with startup_timer(f"tabs.restore_tab.{tab_id}.deferred_runtime"):
+            if runtime is None:
+                runtime = _resume_codex_sidecar_tab_runtime(self._app, tab_info)
+        if runtime is None:
+            self._set_deferred_restore_failed_notice()
+            if self._fallback_deferred_restore_to_direct_runtime(tab_id, session):
+                return True
+            return False
+        with startup_timer(f"tabs.restore_tab.{tab_id}.deferred_hydrate"):
+            _hydrate_codex_runtime_from_session_metadata(runtime)
+        self._bind_thread_store_update_active_getter(tab_id, runtime)
+        self._bind_visible_child_tab_backend(tab_id, runtime)
+        _restore_tab_provider(runtime, tab_info)
+        session.runtime = runtime
+        session.thread_id = str(getattr(runtime, "thread_id", "") or session.thread_id)
+        session.thread_name = str(getattr(runtime, "thread_name", "") or session.thread_name)
+        session.status_data = _initial_status_data_for_new_tab(self._app, runtime)
+        session.engine = _tab_session_engine_for_runtime(runtime)
+        session.kernel_session_id = _tab_session_kernel_session_id(runtime)
+        session.runtime_restore_pending = False
+        session.runtime_restore_prefetch = None
+        session.manifest_tab_info = None
+        session.transcript_restore_pending = True
+        if session.request_worker_task is None:
+            self._start_worker_task(tab_id)
+        return True
+
+    def _fallback_deferred_restore_to_direct_runtime(
+        self,
+        tab_id: str,
+        session: TabSession,
+    ) -> bool:
+        if len(self._tabs) > 1:
+            return False
+        runtime = getattr(self._app, "_direct_runtime", None)
+        if runtime is None or runtime is session.runtime:
+            return False
+        self._bind_thread_store_update_active_getter(tab_id, runtime)
+        self._bind_visible_child_tab_backend(tab_id, runtime)
+        session.runtime = runtime
+        session.thread_id = str(getattr(runtime, "thread_id", "") or session.thread_id)
+        session.thread_name = str(getattr(runtime, "thread_name", "") or session.thread_name)
+        session.status_data = _initial_status_data_for_new_tab(self._app, runtime)
+        session.engine = _tab_session_engine_for_runtime(runtime)
+        session.kernel_session_id = _tab_session_kernel_session_id(runtime)
+        session.runtime_restore_pending = False
+        session.runtime_restore_prefetch = None
+        session.runtime_restore_poll_scheduled = False
+        session.manifest_tab_info = None
+        session.transcript_restore_pending = True
+        if session.request_worker_task is None:
+            self._start_worker_task(tab_id)
+        return True
+
+    def _schedule_runtime_restore_poll(self, tab_id: str) -> None:
+        session = self._tabs.get(tab_id)
+        if session is not None and bool(getattr(session, "runtime_restore_poll_scheduled", False)):
+            return
+        set_timer = getattr(self._app, "set_timer", None)
+        if not callable(set_timer):
+            return
+        if session is not None:
+            session.runtime_restore_poll_scheduled = True
+
+        def _poll() -> None:
+            session = self._tabs.get(tab_id)
+            if session is not None:
+                session.runtime_restore_poll_scheduled = False
+            if session is None or not bool(getattr(session, "runtime_restore_pending", False)):
+                return
+            prefetch = getattr(session, "runtime_restore_prefetch", None)
+            if isinstance(prefetch, CodexSidecarRestorePrefetch) and not prefetch.wait(0):
+                self._schedule_runtime_restore_poll(tab_id)
+                return
+            if not self._ensure_runtime_restored(tab_id):
+                self._remove_unrestorable_tab(tab_id)
+                if self._active_tab_id == tab_id and self._tab_order:
+                    self._active_tab_id = self._tab_order[0]
+                    self._restore_tab_state(self._active_tab_id)
+                return
+            if tab_id == self._active_tab_id:
+                self._restore_tab_state(tab_id)
+
+        try:
+            set_timer(0.05, _poll)
+        except RuntimeError:
+            if session is not None:
+                session.runtime_restore_poll_scheduled = False
+
+    def _set_deferred_restore_failed_notice(self) -> None:
+        restore_errors = [
+            dict(item)
+            for item in list(getattr(self._app, "_codex_sidecar_restore_errors", []) or [])
+            if isinstance(item, dict)
+        ]
+        error_preview = "; ".join(
+            (
+                f"{str(item.get('tab_id') or '').strip() or '-'}"
+                f":{str(item.get('thread_id') or '').strip() or '-'}"
+                f":{str(item.get('error') or '').strip()}"
+            ).strip(":")
+            for item in restore_errors[:3]
+        )
+        self._set_manifest_restore_notice(
+            (
+                "system.tab_manifest_restore_partial_detail"
+                if error_preview
+                else "system.tab_manifest_restore_partial"
+            ),
+            path=str(self._manifest_path or ""),
+            restored_count=max(0, len(self._tab_order) - 1),
+            skipped_count=1,
+            error_preview=error_preview,
+        )
+
+    def _remove_unrestorable_tab(self, tab_id: str) -> None:
+        if tab_id not in self._tabs or len(self._tabs) <= 1:
+            return
+        self._cancel_worker_task(tab_id)
+        try:
+            self._tab_order.remove(tab_id)
+        except ValueError:
+            pass
+        self._tabs.pop(tab_id, None)
 
     def _current_transcript_scroll_offset(self) -> tuple[int, int]:
         app = self._app
@@ -1171,6 +1424,8 @@ class TabSessionManager:
 
     def _start_worker_task(self, tab_id: str) -> None:
         session = self._tabs[tab_id]
+        if bool(getattr(session, "runtime_restore_pending", False)):
+            return
         _start_tab_request_worker_task(session, self._app, tab_id)
 
     def _cancel_worker_task(self, tab_id: str) -> None:

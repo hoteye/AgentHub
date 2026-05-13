@@ -15,6 +15,7 @@ from cli.agent_cli.app_runtime_flow_request_user_input_helpers import _PendingRe
 from cli.agent_cli.models import ActivityEvent, AgentIntent, PromptResponse
 from cli.agent_cli.orchestration import taskbook_runtime as taskbook_runtime_service
 from cli.agent_cli.runtime import AgentCliRuntime
+from cli.agent_cli.runtime_kernels.base import StartSessionRequest
 from cli.agent_cli.thread_store import ThreadStore
 from cli.agent_cli.ui import PromptComposer
 from cli.agent_cli.ui.runtime_bridge import QueuedRuntimeRequest
@@ -1323,6 +1324,49 @@ class TestTabPersistenceRecovery(unittest.IsolatedAsyncioTestCase):
             assert params["restored_count"] == 1
             assert params["skipped_count"] == 1
 
+    async def test_restore_manifest_defers_inactive_tab_transcript_until_switch(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = ThreadStore(Path(temp_dir) / "state")
+            runtime = self._runtime_with_store(store)
+            main_thread_id = runtime.thread_id
+            tab_runtime = AgentCliRuntime(thread_store=store)
+            tab_runtime.start_thread(name="inactive persisted")
+            tab_thread_id = tab_runtime.thread_id
+            tab_runtime.handle_prompt("inactive question")
+            runtime.resume_thread(main_thread_id)
+            manifest = TabSessionManifest(
+                active_tab_id="main",
+                tab_order=["main", "tab-1"],
+                tabs=[
+                    TabSessionManifestTab(tab_id="main", thread_id=main_thread_id),
+                    TabSessionManifestTab(tab_id="tab-1", thread_id=tab_thread_id),
+                ],
+            )
+            app = AgentCliApp(runtime=runtime)
+            calls: list[str] = []
+
+            def _restore_snapshot(_app, snapshot_runtime):
+                calls.append(str(getattr(snapshot_runtime, "thread_id", "") or ""))
+                return [f"entry:{snapshot_runtime.thread_id}"], [
+                    f"line:{snapshot_runtime.thread_id}"
+                ]
+
+            with patch(
+                "cli.agent_cli.ui.tab_session_manager._restore_runtime_transcript_snapshot",
+                side_effect=_restore_snapshot,
+            ):
+                assert app._tab_manager.restore_from_manifest(manifest, source_runtime=runtime)
+                inactive_session = app._tab_manager.get("tab-1")
+                assert inactive_session is not None
+                assert inactive_session.transcript_restore_pending is True
+                assert inactive_session.transcript_lines == []
+                assert calls == [main_thread_id]
+
+                assert app._tab_manager.switch_to_tab("tab-1")
+                assert inactive_session.transcript_restore_pending is False
+                assert inactive_session.transcript_lines == [f"line:{tab_thread_id}"]
+                assert calls == [main_thread_id, tab_thread_id]
+
     async def test_restore_manifest_uses_current_startup_cwd_for_python_tabs(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = ThreadStore(Path(temp_dir) / "state")
@@ -1472,6 +1516,55 @@ class TestCodexSidecarTabIntegration(unittest.IsolatedAsyncioTestCase):
             assert app._tab_manager.switch_to_tab(tab_id)
             assert app.runtime is codex_session.runtime
             assert codex_session.runtime.gateway_state_store is python_runtime.gateway_state_store
+
+    async def test_codex_sidecar_restore_uses_prefetched_session(self):
+        from cli.agent_cli.runtime_kernels.codex_sidecar import CodexSidecarKernel
+        from cli.agent_cli.ui.tab_session_restore_prefetch import CodexSidecarRestorePrefetch
+
+        app = AgentCliApp(runtime=self._make_runtime())
+        kernel = CodexSidecarKernel(
+            codex_bin=FAKE_CODEX_BIN,
+            request_timeout=3,
+        )
+        try:
+            session = await kernel.start_session(StartSessionRequest(cwd=str(Path.cwd())))
+            prefetch = CodexSidecarRestorePrefetch(
+                manifest_path=Path("tabs.json"),
+                tab_id="main",
+                thread_id=session.thread_id,
+                kernel_session_id=session.session_id,
+                cwd=session.cwd,
+            )
+            prefetch.set_result(kernel=kernel, session=session)
+            app._codex_sidecar_restore_prefetch = prefetch
+            manifest = TabSessionManifest(
+                active_tab_id="main",
+                tab_order=["main"],
+                tabs=[
+                    TabSessionManifestTab(
+                        tab_id="main",
+                        thread_id=session.thread_id,
+                        engine="codex_sidecar",
+                        kernel_session_id=session.session_id,
+                        cwd=session.cwd,
+                    )
+                ],
+            )
+
+            with patch(
+                "cli.agent_cli.ui.tab_session_manager_runtime_factory._codex_sidecar_kernel_for_app"
+            ) as fallback_kernel:
+                assert app._tab_manager.restore_from_manifest(manifest, source_runtime=app.runtime)
+
+            fallback_kernel.assert_not_called()
+            assert app._tab_manager.active_session.runtime.thread_id == session.thread_id
+            assert app._tab_manager.active_session.runtime_restore_pending is True
+            assert app._tab_manager._ensure_runtime_restored("main")
+            assert app._codex_sidecar_kernel is kernel
+            assert app._codex_sidecar_restore_prefetch is None
+            assert app._tab_manager.active_session.runtime_restore_pending is False
+        finally:
+            await kernel.aclose()
 
     async def test_new_tab_records_actual_engine_after_sidecar_fallback(self):
         from cli.agent_cli.runtime_kernels.codex_sidecar import CodexSidecarKernel
@@ -2196,7 +2289,19 @@ class TestCodexSidecarTabIntegration(unittest.IsolatedAsyncioTestCase):
         )
 
         assert app._tab_manager.restore_from_manifest(manifest, source_runtime=app.runtime)
+        assert app._tab_manager._tab_order == ["main", "codex-tab"]
+        restored = app._tab_manager.get("codex-tab")
+        assert restored is not None
+        assert restored.runtime_restore_pending is True
+        app._tab_manager._start_worker_task("codex-tab")
+        assert restored.request_worker_task is None
+        assert getattr(app, "_codex_sidecar_restore_errors", []) == []
+        assert app._tab_manager.pop_manifest_restore_notice() is None
+
+        assert app._tab_manager.switch_to_tab("codex-tab") is False
         assert app._tab_manager._tab_order == ["main"]
+        assert app._tab_manager.active_tab_id == "main"
+        assert app._tab_manager.get("codex-tab") is None
         errors = getattr(app, "_codex_sidecar_restore_errors", [])
         assert errors == [
             {
@@ -2240,15 +2345,15 @@ class TestBackgroundTabOutputIsolation(unittest.IsolatedAsyncioTestCase):
         app = AgentCliApp(runtime=build_persistent_runtime(resume_active_thread=False))
         async with app.run_test() as pilot:
             await pilot.pause()
-            main_entries_before = list(app._transcript_entries)
             app.action_new_tab()
             await pilot.pause()
+            active_entries_before = list(app._transcript_entries)
             new_tab_id = app._tab_manager.active_tab_id
             session = app._tab_manager.get(new_tab_id)
             assert session is not None
             session.transcript_entries = ["bg-entry-1"]
             session.transcript_dirty = True
-            assert app._transcript_entries == main_entries_before
+            assert app._transcript_entries == active_entries_before
 
     async def test_background_reply_marks_unread_until_tab_switch(self):
         from cli.agent_cli.runtime_factory import build_persistent_runtime
@@ -2656,6 +2761,7 @@ class TestTabPendingInteractions(unittest.IsolatedAsyncioTestCase):
             active_session = app._tab_manager.active_session
             assert main_session is not None
             main_session.pending_approvals = ["appr_main"]
+            notices.clear()
 
             await app._enqueue_runtime_request("/approve appr_main", [], priority="later")
             await pilot.pause()

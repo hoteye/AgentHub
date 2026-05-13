@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
 from cli.agent_cli.gateway_core import (
     InMemoryGatewayStateStore,
     JsonlGatewayStateStore,
+    LazyJsonlGatewayStateStore,
     create_action_request,
     create_approval_ticket,
 )
@@ -44,7 +45,9 @@ class _Tools:
         raise AssertionError("stale approval cleanup must not start shell sessions")
 
 
-def _pending_shell_ticket(store: InMemoryGatewayStateStore, *, requested_at: datetime, command: str):
+def _pending_shell_ticket(
+    store: InMemoryGatewayStateStore, *, requested_at: datetime, command: str
+):
     action = create_action_request(
         action_type="shell_command",
         connector_key="local_cli",
@@ -70,7 +73,7 @@ def _pending_shell_ticket(store: InMemoryGatewayStateStore, *, requested_at: dat
 
 
 def test_startup_cleanup_declines_only_stale_pending_approvals_without_execution() -> None:
-    now = datetime(2026, 4, 25, 10, 30, tzinfo=timezone.utc)
+    now = datetime(2026, 4, 25, 10, 30, tzinfo=UTC)
     store = InMemoryGatewayStateStore()
     stale = _pending_shell_ticket(
         store,
@@ -106,7 +109,7 @@ def test_startup_cleanup_skips_pending_approval_with_unparseable_requested_at() 
     store = InMemoryGatewayStateStore()
     ticket = _pending_shell_ticket(
         store,
-        requested_at=datetime(2026, 4, 25, 10, 0, tzinfo=timezone.utc),
+        requested_at=datetime(2026, 4, 25, 10, 0, tzinfo=UTC),
         command="echo malformed",
     )
     store.save_approval_ticket(replace(ticket, requested_at="not-a-date"))
@@ -115,7 +118,7 @@ def test_startup_cleanup_skips_pending_approval_with_unparseable_requested_at() 
     updated = approval_startup_cleanup_runtime.decline_stale_pending_approvals_on_startup(
         runtime,
         stale_after_seconds=1,
-        now=datetime(2026, 4, 25, 11, 0, tzinfo=timezone.utc),
+        now=datetime(2026, 4, 25, 11, 0, tzinfo=UTC),
     )
 
     assert updated == []
@@ -123,17 +126,21 @@ def test_startup_cleanup_skips_pending_approval_with_unparseable_requested_at() 
 
 
 def test_persistent_runtime_runs_stale_pending_cleanup_on_startup(tmp_path: Path) -> None:
-    gateway_store = JsonlGatewayStateStore(tmp_path / "gateway")
+    gateway_path = tmp_path / "gateway"
+    gateway_store = JsonlGatewayStateStore(gateway_path)
     thread_store = ThreadStore(tmp_path / "threads")
     stale = _pending_shell_ticket(
         gateway_store,
-        requested_at=datetime.now(timezone.utc) - timedelta(hours=2),
+        requested_at=datetime.now(UTC) - timedelta(hours=2),
         command="echo persistent stale",
     )
 
     with (
         patch("cli.agent_cli.runtime_factory.ThreadStore.default", return_value=thread_store),
-        patch("cli.agent_cli.runtime_factory.JsonlGatewayStateStore.default", return_value=gateway_store),
+        patch(
+            "cli.agent_cli.gateway_core.state_store._default_gateway_base_dir",
+            return_value=gateway_path,
+        ),
     ):
         runtime = build_persistent_runtime(
             resume_active_thread=False,
@@ -141,6 +148,57 @@ def test_persistent_runtime_runs_stale_pending_cleanup_on_startup(tmp_path: Path
             stale_pending_approval_seconds=30 * 60,
         )
 
+    wait_until_loaded = getattr(runtime.gateway_state_store, "wait_until_loaded", None)
+    if callable(wait_until_loaded):
+        assert wait_until_loaded(timeout=2)
+    cleanup_wait = getattr(runtime, "_approval_startup_cleanup_thread", None)
+    if cleanup_wait is not None:
+        cleanup_wait.join(timeout=2)
+    assert isinstance(runtime.gateway_state_store, LazyJsonlGatewayStateStore)
     assert runtime.gateway_state_store.get_approval_ticket(stale.approval_id).status == "rejected"
     reloaded = JsonlGatewayStateStore(tmp_path / "gateway")
     assert reloaded.get_approval_ticket(stale.approval_id).status == "rejected"
+
+
+def test_lazy_jsonl_gateway_state_store_loads_existing_state_in_background(
+    tmp_path: Path,
+) -> None:
+    gateway_path = tmp_path / "gateway"
+    eager_store = JsonlGatewayStateStore(gateway_path)
+    ticket = _pending_shell_ticket(
+        eager_store,
+        requested_at=datetime(2026, 4, 25, 10, 0, tzinfo=UTC),
+        command="echo lazy",
+    )
+
+    lazy_store = LazyJsonlGatewayStateStore(gateway_path)
+
+    assert lazy_store.base_dir == gateway_path
+    assert lazy_store.wait_until_loaded(timeout=2)
+    assert lazy_store.get_approval_ticket(ticket.approval_id).approval_id == ticket.approval_id
+
+
+def test_persistent_runtime_starts_stale_cleanup_in_background(tmp_path: Path) -> None:
+    thread_store = ThreadStore(tmp_path / "threads")
+
+    with (
+        patch("cli.agent_cli.runtime_factory.ThreadStore.default", return_value=thread_store),
+        patch(
+            "cli.agent_cli.gateway_core.state_store._default_gateway_base_dir",
+            return_value=tmp_path / "gateway",
+        ),
+        patch(
+            "cli.agent_cli.runtime_factory.approval_startup_cleanup_runtime.decline_stale_pending_approvals_on_startup",
+        ) as cleanup,
+    ):
+        runtime = build_persistent_runtime(
+            resume_active_thread=False,
+            start_thread_if_unavailable=False,
+            stale_pending_approval_seconds=30 * 60,
+        )
+
+        assert isinstance(runtime.gateway_state_store, LazyJsonlGatewayStateStore)
+        thread = getattr(runtime, "_approval_startup_cleanup_thread", None)
+        assert thread is not None
+        thread.join(timeout=2)
+        cleanup.assert_called_once()

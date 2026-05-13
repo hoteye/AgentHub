@@ -8,6 +8,24 @@ from pathlib import Path
 from typing import Any
 
 from cli.agent_cli.providers.config_catalog import ProviderConfig, optional_bool
+from cli.agent_cli.providers.reference_parity_model_runtime import (
+    normalized_input_modalities as _normalized_input_modalities,
+)
+from cli.agent_cli.providers.reference_parity_model_runtime import (
+    normalized_reference_verbosity as _normalized_reference_verbosity,
+)
+from cli.agent_cli.providers.reference_parity_model_runtime import (
+    normalized_string_list as _normalized_string_list,
+)
+from cli.agent_cli.providers.reference_parity_model_runtime import (
+    reference_default_text_verbosity_for_model,
+)
+from cli.agent_cli.providers.reference_parity_model_runtime import (
+    reference_input_modalities_for_model as _reference_input_modalities_for_model,
+)
+from cli.agent_cli.providers.reference_parity_model_runtime import (
+    reference_model_capability_for_model as _reference_model_capability_for_model,
+)
 
 _CODEX_OPENAI_PROFILE = "codex_openai"
 _CLAUDE_CODE_PROFILE = "claude_code"
@@ -22,32 +40,6 @@ _CLAUDE_CODE_BASE_PROMPT_CANDIDATES = (
 _REFERENCE_APPLY_PATCH_GRAMMAR_CANDIDATES = (
     _PROMPTS_ROOT / "tools" / "handlers" / "tool_apply_patch.lark",
 )
-#
-# Frozen snapshot from codex_ref `codex debug models` on 2026-04-25.
-# Keep runtime deterministic; refresh explicitly when codex_ref updates.
-# Slugs absent from the snapshot must follow codex_ref unknown-model fallback
-# metadata rather than being guessed into the table.
-_DEFAULT_REFERENCE_INPUT_MODALITIES: tuple[str, ...] = ("text", "image")
-_CODEX_REFERENCE_MODEL_CAPABILITIES: tuple[
-    tuple[str, str | None, tuple[str, ...], bool, str | None], ...
-] = (
-    ("gpt-5.5", "freeform", ("text", "image"), True, "low"),
-    ("gpt-5.4", "freeform", ("text", "image"), True, "low"),
-    ("gpt-5.4-mini", "freeform", ("text", "image"), True, "medium"),
-    ("gpt-5.3-codex", "freeform", ("text", "image"), True, "low"),
-    ("gpt-5.2-codex", "freeform", ("text", "image"), False, None),
-    ("gpt-5.1-codex-max", "freeform", ("text", "image"), False, None),
-    ("gpt-5.1-codex", "freeform", ("text", "image"), False, None),
-    ("gpt-5.2", "freeform", ("text", "image"), False, None),
-    ("gpt-5.1", "freeform", ("text", "image"), False, None),
-    ("gpt-5-codex", "freeform", ("text", "image"), False, None),
-    ("gpt-5", None, ("text", "image"), False, None),
-    ("gpt-oss-120b", "freeform", ("text",), False, None),
-    ("gpt-oss-20b", "freeform", ("text",), False, None),
-    ("gpt-5.1-codex-mini", "freeform", ("text", "image"), False, None),
-    ("gpt-5-codex-mini", "freeform", ("text", "image"), False, None),
-)
-_VALID_REFERENCE_VERBOSITY = {"low", "medium", "high"}
 _CODEX_INSTALLATION_ID_CLIENT_METADATA_KEY = "x-codex-installation-id"
 
 
@@ -66,85 +58,6 @@ def _explicit_text(mapping: Mapping[str, Any], key: str) -> str | None:
 
 def _raw_mappings(config: ProviderConfig) -> tuple[dict[str, Any], dict[str, Any]]:
     return dict(config.raw_model or {}), dict(config.raw_provider or {})
-
-
-def _reference_model_slug_candidates(model_slug: str) -> tuple[str, ...]:
-    normalized = str(model_slug or "").strip().lower()
-    if not normalized:
-        return ()
-    candidates = [normalized]
-    if "/" in normalized:
-        suffix = normalized.rsplit("/", 1)[-1].strip()
-        if suffix and suffix != normalized:
-            candidates.append(suffix)
-    return tuple(candidates)
-
-
-def _matches_reference_model_prefix(candidate: str, prefix: str) -> bool:
-    if candidate == prefix:
-        return True
-    for separator in ("-", "."):
-        if candidate.startswith(prefix + separator):
-            return True
-    return False
-
-
-def _normalized_input_modalities(value: Any) -> tuple[str, ...] | None:
-    raw_values: list[str]
-    if isinstance(value, str):
-        raw_values = [part.strip().lower() for part in value.replace(",", " ").split()]
-    elif isinstance(value, list | tuple | set):
-        raw_values = [str(part or "").strip().lower() for part in value]
-    else:
-        return None
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for item in raw_values:
-        if item not in {"text", "image"} or item in seen:
-            continue
-        seen.add(item)
-        normalized.append(item)
-    return tuple(normalized)
-
-
-def _normalized_string_list(value: Any) -> tuple[str, ...] | None:
-    raw_values: list[str]
-    if isinstance(value, str):
-        raw_values = [part.strip().lower() for part in value.replace(",", " ").split()]
-    elif isinstance(value, list | tuple | set):
-        raw_values = [str(part or "").strip().lower() for part in value]
-    else:
-        return None
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for item in raw_values:
-        if not item or item in seen:
-            continue
-        seen.add(item)
-        normalized.append(item)
-    return tuple(normalized)
-
-
-def _reference_model_capability_for_model(
-    model_slug: str,
-) -> tuple[str, str | None, tuple[str, ...], bool, str | None] | None:
-    for candidate in _reference_model_slug_candidates(model_slug):
-        for (
-            prefix,
-            tool_type,
-            input_modalities,
-            supports_original_detail,
-            default_verbosity,
-        ) in _CODEX_REFERENCE_MODEL_CAPABILITIES:
-            if _matches_reference_model_prefix(candidate, prefix):
-                return (
-                    prefix,
-                    tool_type,
-                    input_modalities,
-                    supports_original_detail,
-                    default_verbosity,
-                )
-    return None
 
 
 def reference_parity_enabled(config: ProviderConfig) -> bool:
@@ -289,10 +202,7 @@ def reference_view_image_input_capable(config: ProviderConfig) -> bool:
                 return "image" in modalities
     if _resolved_tool_surface_profile(config) == _CODEX_OPENAI_PROFILE:
         model_slug = str(getattr(config, "model", "") or "").strip().lower()
-        capability = _reference_model_capability_for_model(model_slug)
-        if capability is not None:
-            return "image" in capability[2]
-        return "image" in _DEFAULT_REFERENCE_INPUT_MODALITIES
+        return "image" in _reference_input_modalities_for_model(model_slug)
     return True
 
 
@@ -321,14 +231,6 @@ def reference_view_image_detail(config: ProviderConfig) -> str | None:
     return None
 
 
-def reference_default_text_verbosity_for_model(model_slug: str) -> str | None:
-    capability = _reference_model_capability_for_model(model_slug)
-    if capability is None:
-        return None
-    verbosity = str(capability[4] or "").strip().lower()
-    return verbosity if verbosity in _VALID_REFERENCE_VERBOSITY else None
-
-
 def reference_text_verbosity(config: ProviderConfig) -> str | None:
     raw_model, raw_provider = _raw_mappings(config)
     for mapping in (raw_model, raw_provider):
@@ -342,8 +244,7 @@ def reference_text_verbosity(config: ProviderConfig) -> str | None:
             explicit = _explicit_text(mapping, key)
             if explicit is None:
                 continue
-            normalized = explicit.strip().lower()
-            return normalized if normalized in _VALID_REFERENCE_VERBOSITY else None
+            return _normalized_reference_verbosity(explicit)
     if _resolved_tool_surface_profile(config) == _CODEX_OPENAI_PROFILE:
         return reference_default_text_verbosity_for_model(str(getattr(config, "model", "") or ""))
     return None

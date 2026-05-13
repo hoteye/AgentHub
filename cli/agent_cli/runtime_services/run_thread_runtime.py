@@ -49,6 +49,7 @@ from cli.agent_cli.runtime_services import (
     run_thread_projection_helpers_runtime,
     run_thread_pure_helpers_runtime,
 )
+from cli.agent_cli.startup_debug import startup_timer
 
 
 def callback_suppression_state(runtime: Any) -> dict[str, bool]:
@@ -279,39 +280,44 @@ def resume_thread(
     path: str | None = None,
     history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    payload = core_resume_thread(runtime, thread_id, path=path, history=history)
-    resumed_planner_state = run_thread_projection_helpers_runtime.resumed_planner_state(
-        payload,
-        normalized_history_item_fn=runtime._normalized_history_item,
-        normalized_planner_input_item_fn=runtime._normalized_planner_input_item,
-        planner_history_limit=runtime._PLANNER_HISTORY_LIMIT_MESSAGES,
-    )
+    with startup_timer("run_thread.resume.core"):
+        payload = core_resume_thread(runtime, thread_id, path=path, history=history)
+    with startup_timer("run_thread.resume.planner_state"):
+        resumed_planner_state = run_thread_projection_helpers_runtime.resumed_planner_state(
+            payload,
+            normalized_history_item_fn=runtime._normalized_history_item,
+            normalized_planner_input_item_fn=runtime._normalized_planner_input_item,
+            planner_history_limit=runtime._PLANNER_HISTORY_LIMIT_MESSAGES,
+        )
     planner_history = list(resumed_planner_state["planner_history"])
     if isinstance(payload, dict):
         runtime._planner_input_items = list(resumed_planner_state["planner_input_items"])
     if not runtime._planner_input_items:
-        runtime._planner_input_items = runtime._planner_conversation_input_items()
+        with startup_timer("run_thread.resume.planner_input_fallback"):
+            runtime._planner_input_items = runtime._planner_conversation_input_items()
     if not planner_history:
-        planner_history = runtime._planner_history()
+        with startup_timer("run_thread.resume.planner_history_fallback"):
+            planner_history = runtime._planner_history()
     runtime.history = planner_history[-runtime._PLANNER_HISTORY_LIMIT_MESSAGES :]
     if len(runtime.history_turns) > 100:
         runtime.history_turns = runtime.history_turns[-100:]
     if isinstance(payload, dict):
         state = payload.get("state")
         if isinstance(state, dict) and "delegated_agents" in state:
-            with runtime._delegated_agents_lock:
-                restored_agent_ids = set(runtime._delegated_agents)
-            filtered_delegated_agents = (
-                run_thread_projection_helpers_runtime.filtered_delegated_agents(
-                    list(state.get("delegated_agents") or []),
-                    restored_agent_ids=restored_agent_ids,
+            with startup_timer("run_thread.resume.delegated_agents.filter"):
+                with runtime._delegated_agents_lock:
+                    restored_agent_ids = set(runtime._delegated_agents)
+                filtered_delegated_agents = (
+                    run_thread_projection_helpers_runtime.filtered_delegated_agents(
+                        list(state.get("delegated_agents") or []),
+                        restored_agent_ids=restored_agent_ids,
+                    )
                 )
-            )
-            payload["state"] = dict(state)
-            if filtered_delegated_agents:
-                payload["state"]["delegated_agents"] = filtered_delegated_agents
-            else:
-                payload["state"].pop("delegated_agents", None)
+                payload["state"] = dict(state)
+                if filtered_delegated_agents:
+                    payload["state"]["delegated_agents"] = filtered_delegated_agents
+                else:
+                    payload["state"].pop("delegated_agents", None)
     return payload
 
 

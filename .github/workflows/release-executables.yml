@@ -23,6 +23,7 @@ on:
       - "cli/tests/test_release_artifact_smoke.py"
       - "cli/tests/test_release_version_check.py"
       - "scripts/ci_check.sh"
+      - "scripts/clean_install_smoke_linux.sh"
       - "scripts/release_verify.sh"
       - "scripts/release_publish.sh"
       - "docs/GUI_DESKTOP_RELEASE.md"
@@ -128,3 +129,9 @@ jobs:
           body_path: /tmp/agenthub_cli_release_notes.md
           files: |
             release-assets/*
+
+      - name: Clean install smoke from GitHub Release
+        env:
+          AGENTHUB_INSTALL_REPO: ${{ github.repository }}
+          AGENTHUB_INSTALL_VERSION: ${{ github.ref_name }}
+        run: scripts/clean_install_smoke_linux.sh

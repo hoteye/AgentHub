@@ -165,11 +165,19 @@ def _build_tui_runtime(args, runtime):
             web_search_mode=getattr(args, "web_search_mode", None),
             network_access_enabled=getattr(args, "network_access", None),
         )
+        tab_restore_prefetch = _start_tui_tab_restore_prefetch(
+            runtime_policy=runtime_policy,
+            startup_cwd=startup_cwd,
+            explicit_resume=explicit_resume,
+        )
         runtime = build_persistent_runtime(
             runtime_policy=runtime_policy,
             resume_active_thread=False,
             start_thread_if_unavailable=False,
+            build_initial_planner=False,
         )
+        if tab_restore_prefetch is not None:
+            runtime._codex_sidecar_restore_prefetch = tab_restore_prefetch
         runtime.tui_tab_manifest_enabled = not explicit_resume
         if not explicit_resume:
             _start_new_tui_thread(runtime, startup_cwd)
@@ -187,6 +195,27 @@ def _build_tui_runtime(args, runtime):
         )
     _configure_tui_runtime_policy(runtime, args)
     return runtime
+
+
+def _start_tui_tab_restore_prefetch(
+    *,
+    runtime_policy,
+    startup_cwd: Path,
+    explicit_resume: bool,
+):
+    if explicit_resume:
+        return None
+    try:
+        from cli.agent_cli.ui.tab_session_restore_prefetch import (
+            start_active_codex_sidecar_restore_prefetch,
+        )
+
+        return start_active_codex_sidecar_restore_prefetch(
+            runtime_policy=runtime_policy,
+            startup_cwd=startup_cwd,
+        )
+    except Exception:
+        return None
 
 
 def _start_new_tui_thread(runtime, startup_cwd) -> None:

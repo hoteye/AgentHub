@@ -1,27 +1,29 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Callable, Dict
+from collections.abc import Callable
+from typing import Any
 
-from cli.agent_cli import agent_status_projection
-from cli.agent_cli import provider_source_semantics_runtime
+from cli.agent_cli import agent_status_projection, provider_source_semantics_runtime
 from cli.agent_cli.agent_provider_resolution import public_provider_name as _public_provider_name
+from cli.agent_cli.provider_persistence_paths_runtime import (
+    load_user_provider_selection,
+    resolve_user_provider_auth_path,
+    resolve_user_provider_config_path,
+)
 from cli.agent_cli.providers import availability_feature_config_runtime
 from cli.agent_cli.providers.availability_projection import (
     append_availability_surface,
     get_availability_registry,
 )
 from cli.agent_cli.providers.config.paths import AGENTHUB_PROVIDER_HOME_ENV
-from cli.agent_cli.providers.provider_status_management_runtime import provider_management_surface_fields
-from cli.agent_cli.provider_persistence_paths_runtime import (
-    load_user_provider_selection,
-    resolve_user_provider_auth_path,
-    resolve_user_provider_config_path,
+from cli.agent_cli.providers.model_routing import STANDARD_DELEGATION_NAMES, STANDARD_ROUTE_NAMES
+from cli.agent_cli.providers.provider_status_management_runtime import (
+    provider_management_surface_fields,
 )
 from cli.agent_cli.runtime_services.provider_availability_refresh_runtime import (
     refresh_controller_surface_fields,
 )
-from cli.agent_cli.providers.model_routing import STANDARD_DELEGATION_NAMES, STANDARD_ROUTE_NAMES
 
 _SESSION_PROVIDER_OVERRIDE_KEYS = {
     "AGENT_CLI_PROVIDER",
@@ -44,7 +46,7 @@ def _has_session_provider_override(agent: Any) -> bool:
     return any(str(overrides.get(key) or "").strip() for key in _SESSION_PROVIDER_OVERRIDE_KEYS)
 
 
-def _append_session_provider_override_source(agent: Any, status: Dict[str, Any]) -> Dict[str, Any]:
+def _append_session_provider_override_source(agent: Any, status: dict[str, Any]) -> dict[str, Any]:
     if str(status.get("provider_source") or "").strip() != "env":
         return status
     if not _has_session_provider_override(agent):
@@ -55,7 +57,7 @@ def _append_session_provider_override_source(agent: Any, status: Dict[str, Any])
     return status
 
 
-def _append_provider_source_semantics(status: Dict[str, Any]) -> Dict[str, Any]:
+def _append_provider_source_semantics(status: dict[str, Any]) -> dict[str, Any]:
     try:
         user_config_path = resolve_user_provider_config_path()
     except Exception:
@@ -83,11 +85,11 @@ def _append_provider_source_semantics(status: Dict[str, Any]) -> Dict[str, Any]:
 def provider_status(
     agent: Any,
     *,
-    session_route_overrides_fn: Callable[[Any], Dict[str, Dict[str, Any]]],
-    session_delegate_overrides_fn: Callable[[Any], Dict[str, Dict[str, Any]]],
+    session_route_overrides_fn: Callable[[Any], dict[str, dict[str, Any]]],
+    session_delegate_overrides_fn: Callable[[Any], dict[str, dict[str, Any]]],
     resolution_status_label_fn: Callable[[Any], str],
-) -> Dict[str, str]:
-    def _append_management_surface(status: Dict[str, Any]) -> Dict[str, Any]:
+) -> dict[str, str]:
+    def _append_management_surface(status: dict[str, Any]) -> dict[str, Any]:
         _append_provider_source_semantics(status)
         _append_session_provider_override_source(agent, status)
         status.update(
@@ -114,10 +116,16 @@ def provider_status(
     auth_path = str(agent._provider_paths.auth_path)
     selection_path = _provider_selection_path()
     availability_registry = get_availability_registry(agent)
-    availability_settings = availability_feature_config_runtime.provider_availability_feature_settings(agent)
+    availability_settings = (
+        availability_feature_config_runtime.provider_availability_feature_settings(agent)
+    )
     stale_after_seconds = int(availability_settings.get("stale_after_seconds") or 0)
-    if agent._planner is not None:
-        summary = agent._planner.public_summary()
+    planner = getattr(agent, "_planner", None)
+    pending_config = getattr(agent, "_planner_config", None) if planner is None else None
+    if planner is not None or pending_config is not None:
+        summary = (
+            planner.public_summary() if planner is not None else pending_config.public_summary()
+        )
         status = agent_status_projection.build_ready_provider_status(
             summary,
             config_path=config_path,
@@ -126,13 +134,14 @@ def provider_status(
             host_platform=agent.host_platform,
             public_provider_name_fn=_public_provider_name,
         )
-        agent_status_projection.append_route_and_delegate_resolution_labels(
-            status,
-            summary,
-            route_names=STANDARD_ROUTE_NAMES,
-            delegation_names=STANDARD_DELEGATION_NAMES,
-            resolution_status_label_fn=resolution_status_label_fn,
-        )
+        if planner is not None:
+            agent_status_projection.append_route_and_delegate_resolution_labels(
+                status,
+                summary,
+                route_names=STANDARD_ROUTE_NAMES,
+                delegation_names=STANDARD_DELEGATION_NAMES,
+                resolution_status_label_fn=resolution_status_label_fn,
+            )
         route_overrides = session_route_overrides_fn(agent)
         delegation_overrides = session_delegate_overrides_fn(agent)
         agent_status_projection.append_override_counts(
@@ -140,7 +149,9 @@ def provider_status(
             route_overrides=route_overrides,
             delegation_overrides=delegation_overrides,
         )
-        diagnostic_lines = agent._planner_runtime_error_diagnostic_lines() if agent._planner_runtime_error else []
+        diagnostic_lines = (
+            agent._planner_runtime_error_diagnostic_lines() if agent._planner_runtime_error else []
+        )
         agent_status_projection.append_runtime_state(
             status,
             runtime_error=agent._planner_runtime_error,
@@ -150,7 +161,9 @@ def provider_status(
         if ready_model in {"", "-"}:
             ready_model = str(status.get("model_key") or "").strip()
         if ready_model in {"", "-"}:
-            ready_model = str(agent._session_provider_env_overrides.get("AGENT_CLI_MODEL") or "").strip()
+            ready_model = str(
+                agent._session_provider_env_overrides.get("AGENT_CLI_MODEL") or ""
+            ).strip()
         append_availability_surface(
             status,
             availability_registry,
@@ -179,7 +192,9 @@ def provider_status(
     if pending_model in {"", "-"}:
         pending_model = str(status.get("model_key") or "").strip()
     if pending_model in {"", "-"}:
-        pending_model = str(agent._session_provider_env_overrides.get("AGENT_CLI_MODEL") or "").strip()
+        pending_model = str(
+            agent._session_provider_env_overrides.get("AGENT_CLI_MODEL") or ""
+        ).strip()
     append_availability_surface(
         status,
         availability_registry,

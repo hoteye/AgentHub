@@ -1,22 +1,22 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
-from cli.agent_cli import agent_provider_catalog_runtime
-from cli.agent_cli import provider_catalog_runtime
+from cli.agent_cli import agent_provider_catalog_runtime, provider_catalog_runtime
+from cli.agent_cli.provider import _find_model_entry, save_user_model_selection
 from cli.agent_cli.provider_persistence_paths_runtime import (
     resolve_project_provider_config_write_path,
 )
-from cli.agent_cli.provider import _find_model_entry, save_user_model_selection
 from cli.agent_cli.providers.model_routing import STANDARD_DELEGATION_NAMES, STANDARD_ROUTE_NAMES
 from cli.agent_cli.providers.registry import infer_vendor, model_selector_for_line
-
 
 _SELECTION_WRITE_SCOPES = {"session", "user", "project"}
 
 
-def _resolved_selection_write_scope(*, write_scope: str | None = None, persist: bool = False) -> str:
+def _resolved_selection_write_scope(
+    *, write_scope: str | None = None, persist: bool = False
+) -> str:
     normalized = str(write_scope or "").strip().lower()
     if normalized:
         if normalized not in _SELECTION_WRITE_SCOPES:
@@ -36,7 +36,7 @@ def _persist_selection_updates(
     agent: Any,
     *,
     write_scope: str,
-    persistence_updates: Dict[str, str],
+    persistence_updates: dict[str, str],
     operation_name: str,
 ) -> None:
     if write_scope == "session" or not persistence_updates:
@@ -55,7 +55,8 @@ def _persist_selection_updates(
 
 def _current_planner_selection(agent: Any) -> tuple[str, str]:
     planner = getattr(agent, "_planner", None)
-    summary_getter = getattr(planner, "public_summary", None)
+    source = planner if planner is not None else getattr(agent, "_planner_config", None)
+    summary_getter = getattr(source, "public_summary", None)
     if not callable(summary_getter):
         return "", ""
     try:
@@ -73,7 +74,9 @@ def _selection_matches_current(agent: Any, *, provider_name: str, model: str) ->
     model_name = str(model or "").strip()
     if not provider or not model_name:
         return False
-    current_provider = str(agent._session_provider_env_overrides.get("AGENT_CLI_PROVIDER") or "").strip()
+    current_provider = str(
+        agent._session_provider_env_overrides.get("AGENT_CLI_PROVIDER") or ""
+    ).strip()
     current_model = str(agent._session_provider_env_overrides.get("AGENT_CLI_MODEL") or "").strip()
     if not current_provider or not current_model:
         current_provider, current_model = _current_planner_selection(agent)
@@ -90,14 +93,16 @@ def configure_model_selection_impl(
     provider_status_fn,
     persist: bool = False,
     write_scope: str | None = None,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     changed = False
-    selection_write_scope = _resolved_selection_write_scope(write_scope=write_scope, persist=persist)
-    session_updates: Dict[str, str] = {}
+    selection_write_scope = _resolved_selection_write_scope(
+        write_scope=write_scope, persist=persist
+    )
+    session_updates: dict[str, str] = {}
     session_removals: set[str] = set()
-    persistence_updates: Dict[str, str] = {}
+    persistence_updates: dict[str, str] = {}
     catalog = None
-    resolved_model_profile: Dict[str, Any] | None = None
+    resolved_model_profile: dict[str, Any] | None = None
     current_status = None
     target_model_uncertain = False
     if model is not None:
@@ -112,11 +117,16 @@ def configure_model_selection_impl(
             changed = True
         else:
             catalog = load_provider_catalog_fn(**agent._provider_loader_kwargs())
-            preferred_provider = str(agent._session_provider_env_overrides.get("AGENT_CLI_PROVIDER") or "").strip() or None
+            preferred_provider = (
+                str(agent._session_provider_env_overrides.get("AGENT_CLI_PROVIDER") or "").strip()
+                or None
+            )
             if preferred_provider is None:
                 current_status = provider_status_fn(agent)
                 if str(current_status.get("provider_ready") or "").strip().lower() == "true":
-                    preferred_provider = str(current_status.get("provider_name") or "").strip() or None
+                    preferred_provider = (
+                        str(current_status.get("provider_name") or "").strip() or None
+                    )
             entry = _find_model_entry(selector, catalog, preferred_provider=preferred_provider)
             if entry is None and preferred_provider is not None:
                 entry = _find_model_entry(selector, catalog)
@@ -147,28 +157,39 @@ def configure_model_selection_impl(
                 current_status = current_status or provider_status_fn(agent)
                 target_provider_name = (
                     str(session_updates.get("AGENT_CLI_PROVIDER") or "").strip()
-                    or str(agent._session_provider_env_overrides.get("AGENT_CLI_PROVIDER") or "").strip()
+                    or str(
+                        agent._session_provider_env_overrides.get("AGENT_CLI_PROVIDER") or ""
+                    ).strip()
                     or str(current_status.get("provider_name") or "").strip()
                 )
                 target_model = (
                     str(session_updates.get("AGENT_CLI_MODEL") or "").strip()
-                    or str(agent._session_provider_env_overrides.get("AGENT_CLI_MODEL") or "").strip()
+                    or str(
+                        agent._session_provider_env_overrides.get("AGENT_CLI_MODEL") or ""
+                    ).strip()
                     or str(current_status.get("model_key") or "").strip()
                     or str(current_status.get("provider_model") or "").strip()
                 )
                 if target_model:
-                    resolved_model_profile = provider_catalog_runtime.model_catalog_reasoning_profile(
-                        catalog=catalog,
-                        provider_name=target_provider_name,
-                        model=target_model,
+                    resolved_model_profile = (
+                        provider_catalog_runtime.model_catalog_reasoning_profile(
+                            catalog=catalog,
+                            provider_name=target_provider_name,
+                            model=target_model,
+                        )
                     )
             if resolved_model_profile is not None:
-                supported_reasoning_efforts = tuple(resolved_model_profile.get("supported_reasoning_efforts") or ())
-                target_model_id = str(resolved_model_profile.get("model_id") or "").strip() or str(
-                    resolved_model_profile.get("model_key") or ""
-                ).strip()
+                supported_reasoning_efforts = tuple(
+                    resolved_model_profile.get("supported_reasoning_efforts") or ()
+                )
+                target_model_id = (
+                    str(resolved_model_profile.get("model_id") or "").strip()
+                    or str(resolved_model_profile.get("model_key") or "").strip()
+                )
                 if not supported_reasoning_efforts:
-                    raise ValueError(f"model does not support reasoning_effort: {target_model_id or '-'}")
+                    raise ValueError(
+                        f"model does not support reasoning_effort: {target_model_id or '-'}"
+                    )
                 if effort not in supported_reasoning_efforts:
                     choices = ", ".join((*supported_reasoning_efforts, "default"))
                     raise ValueError(
@@ -206,14 +227,14 @@ def switch_provider_impl(
     default_model_entry_fn,
     vendor_for_name_fn,
     provider_status_fn,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     provider = str(provider_name or "").strip()
     if not provider:
         raise ValueError("provider_name must be a non-empty string")
-    selection_write_scope = _resolved_selection_write_scope(write_scope=write_scope, persist=persist)
-    catalog = supplement_catalog_fn(
-        load_provider_catalog_fn(**agent._provider_loader_kwargs())
+    selection_write_scope = _resolved_selection_write_scope(
+        write_scope=write_scope, persist=persist
     )
+    catalog = supplement_catalog_fn(load_provider_catalog_fn(**agent._provider_loader_kwargs()))
     entry = agent_provider_catalog_runtime.resolve_switch_provider_entry(
         provider,
         catalog=catalog,
@@ -260,7 +281,7 @@ def configure_named_override_selection_impl(
     store_attr: str,
     empty_override_error: str,
     provider_status_fn,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     normalized_name = validate_name_fn(name)
     store = getattr(agent, store_attr)
     if clear:
@@ -283,7 +304,9 @@ def configure_named_override_selection_impl(
     return provider_status_fn(agent)
 
 
-def session_named_overrides(overrides: Any, *, allowed_names: tuple[str, ...]) -> Dict[str, Dict[str, Any]]:
+def session_named_overrides(
+    overrides: Any, *, allowed_names: tuple[str, ...]
+) -> dict[str, dict[str, Any]]:
     return {
         name: dict(payload)
         for name, payload in dict(overrides or {}).items()
@@ -293,14 +316,14 @@ def session_named_overrides(overrides: Any, *, allowed_names: tuple[str, ...]) -
 
 def set_session_named_overrides_impl(
     agent: Any,
-    overrides: Dict[str, Any] | None,
+    overrides: dict[str, Any] | None,
     *,
     allowed_names: tuple[str, ...],
     override_payload_fn,
     store_attr: str,
     read_back_fn,
-) -> Dict[str, Dict[str, Any]]:
-    normalized: Dict[str, Dict[str, Any]] = {}
+) -> dict[str, dict[str, Any]]:
+    normalized: dict[str, dict[str, Any]] = {}
     for name, payload in dict(overrides or {}).items():
         if name not in allowed_names or not isinstance(payload, dict):
             continue
@@ -317,7 +340,7 @@ def switch_provider_line_impl(
     line: str,
     *,
     provider_status_fn,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     normalized = str(line or "").strip().lower()
     if normalized not in {"chat", "reasoner"}:
         raise ValueError("line must be one of: chat, reasoner")
@@ -337,23 +360,27 @@ def switch_provider_line_impl(
             base_url=str(status.get("provider_base_url") or ""),
         )
         agent._session_provider_env_overrides["AGENT_CLI_PROVIDER"] = (
-            inferred_vendor.name if inferred_vendor is not None else str(status.get("provider_name") or "").strip()
+            inferred_vendor.name
+            if inferred_vendor is not None
+            else str(status.get("provider_name") or "").strip()
         )
         agent._session_provider_env_overrides["AGENT_CLI_MODEL"] = target_model
         agent._reload_planner()
         return provider_status_fn(agent)
     provider_name = str(status.get("provider_name") or "").strip().lower()
-    raise RuntimeError(f"provider line switching is not supported for provider: {provider_name or '-'}")
+    raise RuntimeError(
+        f"provider line switching is not supported for provider: {provider_name or '-'}"
+    )
 
 
-def session_route_overrides(agent: Any) -> Dict[str, Dict[str, Any]]:
+def session_route_overrides(agent: Any) -> dict[str, dict[str, Any]]:
     return session_named_overrides(
         getattr(agent, "_session_route_overrides", {}),
         allowed_names=STANDARD_ROUTE_NAMES,
     )
 
 
-def session_delegate_overrides(agent: Any) -> Dict[str, Dict[str, Any]]:
+def session_delegate_overrides(agent: Any) -> dict[str, dict[str, Any]]:
     return session_named_overrides(
         getattr(agent, "_session_delegation_overrides", {}),
         allowed_names=STANDARD_DELEGATION_NAMES,

@@ -32,6 +32,11 @@ class TabSession:
     pending_request_user_input: Any = None
     transcript_entries: list = field(default_factory=list)
     transcript_lines: list = field(default_factory=list)
+    transcript_restore_pending: bool = False
+    runtime_restore_pending: bool = False
+    runtime_restore_prefetch: Any = None
+    runtime_restore_poll_scheduled: bool = False
+    manifest_tab_info: Any = None
     transcript_scroll_x: int = 0
     transcript_scroll_y: int = 0
     prompt_text: str = ""

@@ -29,6 +29,8 @@ _UNREAD_MARKER = "*"
 _DIRTY_MARKER = "~"
 _CLOSE_MARKER = "×"
 _RAIL_ACTIVE_INDICATOR = "▕"
+_RAIL_ACTIVE_BOTTOM_CORNER = "\U0001FB7F"
+_RAIL_ACTIVE_TOP_CORNER = "\U0001FB7E"
 _LEADING_PADDING = " "
 _TRAILING_PADDING = " "
 _SEPARATOR = " │ "
@@ -38,8 +40,7 @@ _RAIL_WIDTH = 2
 _RAIL_TAB_HEIGHT = 3
 _RAIL_COMPACT_WIDTH = 1
 _COMPACT_THRESHOLD = 64
-_COMPACT_ACTIVE_TOP = "│"
-_COMPACT_ACTIVE_BOTTOM = "│"
+_COMPACT_ACTIVE_TOP = "▕"
 _RAIL_THEME_BG = "#11161c"
 _RAIL_ALT_BG = "#343a43"
 _RAIL_TEXT = "#c9d1d9"
@@ -265,8 +266,13 @@ class TabBar(Static):
             tab_start_y = top_padding + index * _RAIL_TAB_HEIGHT
             tab_end_y = tab_start_y + _RAIL_TAB_HEIGHT
             label_line = tab.tab_id[-1]
-            top_line = self._rail_status_text(tab) or " "
-            bottom_line = "▁"
+            status_text = self._rail_status_text(tab)
+            if index == 0:
+                top_border = "▔" if tab.is_active else "▔" * width
+                top_line = self._merge_status_with_rail_edge(status_text, top_border)
+            else:
+                top_line = status_text or " "
+            bottom_line = "▁" * width if not tab.is_active else "▁"
             content_width = width - _cell_width(_RAIL_ACTIVE_INDICATOR) if tab.is_active else width
 
             align = "right" if tab.is_active else "left"
@@ -274,7 +280,8 @@ class TabBar(Static):
                 text.append("\n")
             text.append(self._pad_rail_line(top_line, content_width, align=align), style=base_style)
             if tab.is_active:
-                text.append(_RAIL_ACTIVE_INDICATOR, style=base_style)
+                top_corner = _RAIL_ACTIVE_TOP_CORNER if index == 0 else _RAIL_ACTIVE_INDICATOR
+                text.append(top_corner, style=base_style)
             text.append("\n")
             text.append(
                 self._pad_rail_line(label_line, content_width, align=align), style=base_style
@@ -286,7 +293,7 @@ class TabBar(Static):
                 self._pad_rail_line(bottom_line, content_width, align=align), style=base_style
             )
             if tab.is_active:
-                text.append(_RAIL_ACTIVE_INDICATOR, style=base_style)
+                text.append(_RAIL_ACTIVE_BOTTOM_CORNER, style=base_style)
 
             self._tab_spans.append((tab.tab_id, tab_start_y, tab_end_y))
 
@@ -311,7 +318,13 @@ class TabBar(Static):
 
             if index > 0:
                 text.append("\n")
-            if status_text:
+            if index == 0:
+                first_line = _RAIL_ACTIVE_TOP_CORNER if tab.is_active else "▔"
+                text.append(
+                    self._merge_status_with_rail_edge(status_text, first_line)[:1],
+                    style=base_style,
+                )
+            elif status_text:
                 text.append(status_text[:1], style=base_style)
             elif tab.is_active:
                 text.append(_COMPACT_ACTIVE_TOP, style=base_style)
@@ -321,9 +334,9 @@ class TabBar(Static):
             text.append(code, style=base_style)
             text.append("\n")
             if tab.is_active:
-                text.append(_COMPACT_ACTIVE_BOTTOM, style=base_style)
+                text.append(_RAIL_ACTIVE_BOTTOM_CORNER, style=base_style)
             else:
-                text.append(" ", style=base_style)
+                text.append("▁", style=base_style)
 
             self._tab_spans.append((tab.tab_id, tab_start_y, tab_end_y))
 
@@ -375,6 +388,14 @@ class TabBar(Static):
         elif tab.is_dirty:
             markers += _DIRTY_MARKER
         return markers
+
+    @staticmethod
+    def _merge_status_with_rail_edge(status_text: str, edge_text: str) -> str:
+        if not status_text:
+            return edge_text
+        if not edge_text:
+            return status_text
+        return f"{status_text[:1]}{edge_text[1:]}"
 
     def on_mouse_down(self, event: MouseDown) -> None:
         if self.orientation == "vertical":

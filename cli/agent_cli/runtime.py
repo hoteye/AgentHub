@@ -149,6 +149,7 @@ class AgentCliRuntime:
         runtime_policy: RuntimePolicy | None = None,
         gateway_broadcaster: GatewayEventBroadcaster | None = None,
         current_dt_provider: Callable[[], datetime] | None = None,
+        build_initial_planner: bool = True,
     ) -> None:
         runtime_facade_bindings_runtime_service.initialize_agent_cli_runtime(
             self,
@@ -175,6 +176,7 @@ class AgentCliRuntime:
             provider_availability_refresh_runtime_service=provider_availability_refresh_runtime_service,
             runtime_runtime=runtime_runtime,
             threading_module=threading,
+            build_initial_planner=build_initial_planner,
         )
 
 

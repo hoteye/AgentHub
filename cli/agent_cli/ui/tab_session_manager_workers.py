@@ -14,7 +14,7 @@ def _start_tab_request_worker_task(session: Any, app: Any, tab_id: str) -> None:
 
         await request_worker_loop(
             queue=session.request_queue,
-            runtime=session.runtime,
+            runtime=lambda _session=session: _session.runtime,
             set_busy=lambda b, _tid=tab_id: app._set_busy_for_tab(_tid, b),
             on_request_start=lambda t, _tid=tab_id: app._on_request_start_for_tab(_tid, t),
             begin_activity_capture=lambda _tid=tab_id: app._begin_activity_capture_for_tab(_tid),

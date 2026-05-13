@@ -33,6 +33,7 @@ def test_export_keeps_public_docs_but_excludes_internal_docs(tmp_path: Path) -> 
     _touch(source / "CONTRIBUTING.md", "# Contributing\n")
     _touch(source / "assets" / "agenthub-tui-workspace.svg", "<svg />\n")
     _touch(source / "scripts" / "install_agenthub_cli.sh", "#!/usr/bin/env bash\n")
+    _touch(source / "scripts" / "clean_install_smoke_linux.sh", "#!/usr/bin/env bash\n")
     _touch(source / "docs" / "AGENTHUB_GO_TO_MARKET_PLAN.md")
     _touch(source / "cli" / "docs" / "CLI_RELEASE_TODO.md")
     _touch(source / "cli" / "agent_cli" / "prompts" / "README.md")
@@ -46,6 +47,7 @@ def test_export_keeps_public_docs_but_excludes_internal_docs(tmp_path: Path) -> 
     assert "CONTRIBUTING.md" in copied
     assert "assets/agenthub-tui-workspace.svg" in copied
     assert "scripts/install_agenthub_cli.sh" in copied
+    assert "scripts/clean_install_smoke_linux.sh" in copied
     assert "cli/agent_cli/prompts/README.md" in copied
     assert "docs/AGENTHUB_GO_TO_MARKET_PLAN.md" not in copied
     assert "cli/docs/CLI_RELEASE_TODO.md" not in copied

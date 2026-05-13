@@ -43,6 +43,15 @@ def _request_uses_busy_indicator(request: QueuedRuntimeRequest) -> bool:
     return not str(getattr(request, "text", "") or "").strip().startswith("/")
 
 
+def _resolve_runtime(runtime: Any) -> Any:
+    return runtime() if callable(runtime) else runtime
+
+
+def _runtime_ready(runtime: Any) -> bool:
+    resolved = _resolve_runtime(runtime)
+    return not bool(getattr(resolved, "deferred_restore", False))
+
+
 async def _run_runtime_request_in_daemon_thread(runtime, request: QueuedRuntimeRequest) -> Any:
     loop = asyncio.get_running_loop()
     future: asyncio.Future[Any] = loop.create_future()
@@ -57,7 +66,8 @@ async def _run_runtime_request_in_daemon_thread(runtime, request: QueuedRuntimeR
 
     def _worker() -> None:
         try:
-            result = runtime.handle_prompt(
+            active_runtime = _resolve_runtime(runtime)
+            result = active_runtime.handle_prompt(
                 request.text,
                 attachments=request.attachments,
             )
@@ -158,6 +168,8 @@ async def request_worker_loop(
                 next_sequence += 1
             selection_index = _select_next_pending_index(pending_requests)
             _sequence, request = pending_requests.pop(selection_index)
+            while not _runtime_ready(runtime):
+                await asyncio.sleep(0.02)
             started_at = perf_counter()
             use_busy_indicator = _request_uses_busy_indicator(request)
             if timeline_debug_enabled():

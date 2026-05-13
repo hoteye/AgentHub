@@ -36,6 +36,17 @@ class ReleaseWorkflowDependenciesTest(unittest.TestCase):
         env = dict(steps["Prepare Codex sidecar runtime"].get("env") or {})
         self.assertEqual(env.get("GITHUB_TOKEN"), "${{ github.token }}")
 
+    def test_cli_release_workflow_runs_clean_install_smoke_after_release(self) -> None:
+        steps = _steps(_workflow("release-executables.yml"), "publish")
+
+        self.assertIn("Create GitHub Release", steps)
+        self.assertIn("Clean install smoke from GitHub Release", steps)
+        smoke_step = steps["Clean install smoke from GitHub Release"]
+        self.assertIn("scripts/clean_install_smoke_linux.sh", str(smoke_step.get("run") or ""))
+        env = dict(smoke_step.get("env") or {})
+        self.assertEqual(env.get("AGENTHUB_INSTALL_REPO"), "${{ github.repository }}")
+        self.assertEqual(env.get("AGENTHUB_INSTALL_VERSION"), "${{ github.ref_name }}")
+
     def test_gui_release_workflow_installs_pytest_dependencies(self) -> None:
         steps = _steps(_workflow("release-gui-desktop.yml"), "build")
 

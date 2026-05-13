@@ -69,6 +69,7 @@ _EXPLICIT_SAMPLES: dict[str, str] = {
     "background_worker_stop": "/background_worker_stop force",
     "chat": "/chat",
     "browser": "/browser status",
+    "close": "/close",
     "close_agent": "/close_agent agent_1",
     "click": "/click page_1 1",
     "compact": "/compact keep recent file edits and test failures",

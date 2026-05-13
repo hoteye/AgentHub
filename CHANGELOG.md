@@ -8,6 +8,22 @@ The format is based on Keep a Changelog, with one release section per published 
 
 No unreleased changes yet.
 
+## [0.1.8] - 2026-05-13
+
+### Added
+
+- Added a one-command GitHub CLI release driver for syncing the sanitized public tree, tagging releases, pushing to GitHub, and watching release Actions.
+- Added a Docker-based Linux clean-install smoke script that validates the public install script, GitHub Release asset download path, basic no-key CLI startup, and uninstall cleanup.
+- Added post-release clean-install smoke coverage to the executable release workflow.
+
+### Changed
+
+- Refreshed the public README and workspace illustration to match the current single-window startup layout, left-side tab rail, and on-demand tmux preview pane.
+
+### Fixed
+
+- Improved the TUI vertical tab rail startup and rendering path, including startup responsiveness, compact tab edge rendering, first-tab top border rendering, and tab-switch transcript color restoration.
+
 ## [0.1.7] - 2026-05-12
 
 ### Fixed

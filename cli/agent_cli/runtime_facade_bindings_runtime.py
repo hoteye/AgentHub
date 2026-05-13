@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
+
+from cli.agent_cli.startup_debug import startup_timer
 
 
 def build_runtime_build_planner_proxy(
@@ -61,6 +64,13 @@ def build_runtime_find_github_workflow_run_proxy(
     return _runtime_find_github_workflow_run_proxy
 
 
+def _build_default_agent(agent_cls: Any, *, build_initial_planner: bool = True) -> Any:
+    try:
+        return agent_cls(build_initial_planner=build_initial_planner)
+    except TypeError:
+        return agent_cls()
+
+
 def initialize_agent_cli_runtime(
     runtime: Any,
     *,
@@ -87,67 +97,86 @@ def initialize_agent_cli_runtime(
     provider_availability_refresh_runtime_service: Any,
     runtime_runtime: Any,
     threading_module: Any,
+    build_initial_planner: bool = True,
 ) -> None:
-    runtime.tools = tools or tool_registry_cls()
-    runtime.agent = agent or agent_cls()
-    runtime.provider_availability_state_path = (
-        provider_availability_persistence_runtime_service.provider_availability_state_path()
-    )
-    runtime._provider_availability_state_path = runtime.provider_availability_state_path
-    runtime.availability_registry = (
-        provider_availability_persistence_runtime_service.load_persisted_availability_registry(
-            path=runtime.provider_availability_state_path
+    with startup_timer("runtime.init.tools"):
+        runtime.tools = tools or tool_registry_cls()
+    with startup_timer("runtime.init.agent"):
+        runtime.agent = agent or _build_default_agent(
+            agent_cls,
+            build_initial_planner=build_initial_planner,
         )
-    )
+    with startup_timer("runtime.init.provider_availability.load"):
+        runtime.provider_availability_state_path = (
+            provider_availability_persistence_runtime_service.provider_availability_state_path()
+        )
+        runtime._provider_availability_state_path = runtime.provider_availability_state_path
+        runtime.availability_registry = (
+            provider_availability_persistence_runtime_service.load_persisted_availability_registry(
+                path=runtime.provider_availability_state_path
+            )
+        )
     runtime.provider_availability_registry = runtime.availability_registry
-    runtime.run_manager = run_manager_cls()
-    runtime.action_worker = action_worker or action_worker_cls()
+    with startup_timer("runtime.init.run_manager"):
+        runtime.run_manager = run_manager_cls()
+    with startup_timer("runtime.init.action_worker"):
+        runtime.action_worker = action_worker or action_worker_cls()
     runtime.browser_action_executor = browser_action_executor
     runtime.gateway_state_store = gateway_state_store or gateway_state_store_cls()
-    runtime.gateway_broadcaster = gateway_broadcaster or gateway_broadcaster_cls()
-    runtime.runtime_policy = runtime_policy or runtime_policy_cls.normalized()
+    with startup_timer("runtime.init.gateway_broadcaster"):
+        runtime.gateway_broadcaster = gateway_broadcaster or gateway_broadcaster_cls()
+    with startup_timer("runtime.init.runtime_policy"):
+        runtime.runtime_policy = runtime_policy or runtime_policy_cls.normalized()
     runtime._current_dt_provider = current_dt_provider
     runtime.activity_callback = activity_callback
     runtime.turn_event_callback = turn_event_callback
     runtime.thread_workspace_context = None
-    runtime._sync_agent_availability_registry()
-    runtime.provider_availability_refresh_controller = (
-        provider_availability_refresh_runtime_service.build_refresh_controller()
-    )
-    provider_availability_refresh_runtime_service.attach_refresh_controller(
-        runtime,
-        runtime.provider_availability_refresh_controller,
-    )
-    provider_availability_refresh_runtime_service.attach_refresh_controller(
-        runtime.agent,
-        runtime.provider_availability_refresh_controller,
-    )
-    runtime.cwd = runtime_runtime.bootstrap_runtime_environment(
-        tools=runtime.tools,
-        agent=runtime.agent,
-        runtime_policy=runtime.runtime_policy,
-        shell_activity_callback=runtime._emit_shell_activity,
-        shell_activity_suppressed_getter=runtime._activity_callbacks_suppressed,
-        shell_cancel_event_getter=runtime._active_cancel_event,
-        resolve_runtime_cwd_fn=runtime._resolve_runtime_cwd,
-        set_tools_workspace_root_fn=runtime._set_tools_workspace_root,
-        runtime_policy_status_getter=runtime.runtime_policy_status,
-        request_patch_approval_fn=runtime.request_patch_approval,
-    )
-    for attr_name, attr_value in runtime_runtime.runtime_init_state(
-        threading_module=threading_module,
-        thread_store=thread_store,
-        run_command_text_result_fn=runtime._run_command_text_result,
-        interrupt_requested_fn=runtime._is_interrupt_requested,
-        interrupt_result_fn=runtime._interrupt_tuple,
-        runtime_owner=runtime,
-    ).items():
-        setattr(runtime, attr_name, attr_value)
-    runtime._rebuild_thread_workspace_context(thread_id=thread_id)
+    with startup_timer("runtime.init.agent_availability.sync"):
+        runtime._sync_agent_availability_registry()
+    with startup_timer("runtime.init.provider_availability.controller"):
+        runtime.provider_availability_refresh_controller = (
+            provider_availability_refresh_runtime_service.build_refresh_controller()
+        )
+        provider_availability_refresh_runtime_service.attach_refresh_controller(
+            runtime,
+            runtime.provider_availability_refresh_controller,
+        )
+        provider_availability_refresh_runtime_service.attach_refresh_controller(
+            runtime.agent,
+            runtime.provider_availability_refresh_controller,
+        )
+    with startup_timer("runtime.init.bootstrap_environment"):
+        runtime.cwd = runtime_runtime.bootstrap_runtime_environment(
+            tools=runtime.tools,
+            agent=runtime.agent,
+            runtime_policy=runtime.runtime_policy,
+            shell_activity_callback=runtime._emit_shell_activity,
+            shell_activity_suppressed_getter=runtime._activity_callbacks_suppressed,
+            shell_cancel_event_getter=runtime._active_cancel_event,
+            resolve_runtime_cwd_fn=runtime._resolve_runtime_cwd,
+            set_tools_workspace_root_fn=runtime._set_tools_workspace_root,
+            runtime_policy_status_getter=runtime.runtime_policy_status,
+            request_patch_approval_fn=runtime.request_patch_approval,
+        )
+    with startup_timer("runtime.init.state"):
+        for attr_name, attr_value in runtime_runtime.runtime_init_state(
+            threading_module=threading_module,
+            thread_store=thread_store,
+            run_command_text_result_fn=runtime._run_command_text_result,
+            interrupt_requested_fn=runtime._is_interrupt_requested,
+            interrupt_result_fn=runtime._interrupt_tuple,
+            runtime_owner=runtime,
+        ).items():
+            setattr(runtime, attr_name, attr_value)
+    with startup_timer("runtime.init.workspace_context"):
+        runtime._rebuild_thread_workspace_context(thread_id=thread_id)
     if thread_store is not None and thread_id:
-        runtime.resume_thread(thread_id)
-    runtime._mcp_runtime = runtime._build_mcp_runtime()
-    runtime._sync_request_user_input_mode_from_provider()
+        with startup_timer("runtime.init.resume_thread"):
+            runtime.resume_thread(thread_id)
+    with startup_timer("runtime.init.mcp_runtime"):
+        runtime._mcp_runtime = runtime._build_mcp_runtime()
+    with startup_timer("runtime.init.request_user_input_mode.sync"):
+        runtime._sync_request_user_input_mode_from_provider()
 
 
 def bind_agent_cli_runtime_facade_methods(
@@ -206,9 +235,7 @@ def bind_agent_cli_runtime_facade_methods(
     )
     runtime_cls._active_cancel_event = run_thread_runtime_service.active_cancel_event
     runtime_cls._bound_cancel_event = run_thread_runtime_service.bound_cancel_event
-    runtime_cls._bound_callback_suppression = (
-        run_thread_runtime_service.bound_callback_suppression
-    )
+    runtime_cls._bound_callback_suppression = run_thread_runtime_service.bound_callback_suppression
     runtime_cls.has_active_run = run_thread_runtime_service.has_active_run
     runtime_cls.pending_steer_supported = run_thread_runtime_service.pending_steer_supported
     runtime_cls.steer_active_run = run_thread_runtime_service.steer_active_run
@@ -232,9 +259,7 @@ def bind_agent_cli_runtime_facade_methods(
     runtime_cls._running_activity_for_tool = staticmethod(
         run_thread_runtime_service.running_activity_for_tool
     )
-    runtime_cls._plan_activity_event = staticmethod(
-        run_thread_runtime_service.plan_activity_event
-    )
+    runtime_cls._plan_activity_event = staticmethod(run_thread_runtime_service.plan_activity_event)
     runtime_cls._resolve_background_task_adapter_builder = staticmethod(
         background_task_adapter_builder_proxy_fn
     )
@@ -288,9 +313,7 @@ def bind_agent_cli_runtime_facade_methods(
             approval_reason=local_shell_approval_reason,
         ),
     )
-    runtime_prompt_context_bindings_runtime_service.bind_runtime_prompt_context_methods(
-        runtime_cls
-    )
+    runtime_prompt_context_bindings_runtime_service.bind_runtime_prompt_context_methods(runtime_cls)
     runtime_response_bindings_runtime_service.bind_runtime_response_methods(runtime_cls)
 
     runtime_cls._orchestration_runtime_services = taskbook_runtime_service.runtime_services
@@ -301,9 +324,7 @@ def bind_agent_cli_runtime_facade_methods(
     runtime_cls.continue_orchestration_run = taskbook_runtime_service.continue_orchestration_run
     runtime_cls.apply_orchestration_card = taskbook_runtime_service.apply_orchestration_card
     runtime_cls.reject_orchestration_card = taskbook_runtime_service.reject_orchestration_card
-    runtime_cls.list_orchestration_workflows = (
-        taskbook_runtime_service.list_orchestration_workflows
-    )
+    runtime_cls.list_orchestration_workflows = taskbook_runtime_service.list_orchestration_workflows
 
 
 __all__ = [

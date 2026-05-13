@@ -8,7 +8,7 @@ plugins, and provider switching inside the same workspace.
 AgentHub is designed for engineers and AI power users who want Codex/Claude-like
 agent interaction without being locked to one provider.
 
-![AgentHub TUI workspace with visible child tabs and split preview pane](assets/agenthub-tui-workspace.svg)
+![AgentHub TUI workspace with a left tab rail and on-demand split preview](assets/agenthub-tui-workspace.svg)
 
 ## Why AgentHub
 
@@ -27,7 +27,7 @@ agent interaction without being locked to one provider.
 - **Visible context handoff**: switch models after a planning or implementation step and continue from the visible conversation, tool results, and workspace state.
 - **Multi-tab orchestration**: use visible child tabs for parallel subtasks, with normalized `TaskRun` results that a parent tab can wait on and summarize.
 - **Codex sidecar runtime**: OpenAI/Codex tabs can run through the bundled `codex-app-server` sidecar and reuse Codex's native tools, approvals, model catalog, and thread/fork semantics.
-- **Split preview pane**: in supported terminals, AgentHub starts with a fixed tmux preview pane so transcript file paths, directories, `path:line` targets, and URLs can open beside the conversation.
+- **Split preview pane**: in supported terminals, AgentHub starts as a single TUI window; clicking transcript file paths, directories, `path:line` targets, or URLs opens a right-side tmux preview pane on demand.
 - **Approval-aware execution**: control when commands, file edits, network access, or wider filesystem access require confirmation.
 - **Plugin host**: reusable host with demo/public plugins and a boundary for commercial domain plugins.
 - **Release tooling**: reproducible Linux package build, release verification, and public publish-tree filtering.
@@ -159,9 +159,10 @@ The Linux release bundle includes the Codex sidecar runtime resources:
 
 ## Split Preview Pane
 
-On Linux/WSL systems with `tmux`, the source launcher can start AgentHub in a
-fixed left/right layout. The left pane is the AgentHub TUI; the right pane is a
-regular terminal preview pane. Clickable transcript targets open on the right:
+On Linux/WSL systems with `tmux`, the source launcher starts AgentHub as a
+single TUI window. When you click a transcript file path, directory,
+`path:line` target, or URL, AgentHub creates a right-side tmux preview pane and
+opens the target there:
 
 - files and `path:line` targets open in `nvim`, `vim`, or `less`;
 - directories open in a terminal file browser when available;
@@ -178,7 +179,9 @@ Preview controls:
 ```
 
 If `tmux` is unavailable, or the TUI is running headless/non-interactively, the
-preview pane is skipped and the normal TUI still starts.
+preview pane is skipped and the normal single-window TUI still starts. Closing
+the preview pane returns to the single-window layout; clicking another target
+can recreate it.
 
 ## Provider Setup
 
@@ -324,102 +327,6 @@ rm -rf cli/build cli/dist /tmp/agenthubpublish-release
 
 Do not delete provider credentials or runtime homes until you confirm they are
 not shared with other local AgentHub runs.
-
-## Development Entry
-
-Common local entrypoints:
-
-```bash
-python -m pip install -r requirements.txt
-python -m pip install -r cli/requirements.txt
-./cli/scripts/start_agent_cli.sh
-pytest -q
-python cli/scripts/changed_files_test_gate.py --help
-python cli/scripts/build_release.py --help
-```
-
-Release verification:
-
-```bash
-scripts/ci_check.sh
-AGENTHUB_RELEASE_UPLOAD=0 scripts/release_publish.sh
-```
-
-GUI entrypoints:
-
-```bash
-./scripts/start_gui_stack.sh
-./scripts/run_gui_acceptance.sh
-```
-
-## Repository Scope
-
-Current active surfaces:
-
-- `cli/`: user-facing CLI, headless runtime, and app-server.
-- `gui/`: operator control UI foundation.
-- `plugins/`: domain and product capability plugins.
-- `shared/` and `workers/`: reusable libraries and heavy execution workers.
-- `docs/`: repository-level architecture, governance, and runbooks.
-
-Important boundaries:
-
-- Reference repositories live under `/home/lyc/project/AgentHubRef`; keep reference-code edits there.
-- `/home/lyc/project/RACS/data` is external read-only corpus data and must not be modified from AgentHub.
-- Product-specific business logic belongs in plugins, not in the CLI host.
-- Commercial plugins such as `psbc_policy` are distributed separately and are not part of the Apache-2.0 core release.
-
-## Documentation
-
-Start from:
-
-- `docs/README.md`: full document index.
-- `docs/AGENTHUB_GO_TO_MARKET_PLAN.md`: open-source plus commercial go-to-market route.
-- `docs/AGENTHUB_RELEASE_MATURITY_TODO.md`: public release readiness checklist.
-- `docs/AGENTHUB_REPOSITORY_GOVERNANCE.md`: governance overview and operating model.
-- `docs/DIRECTORY_BLUEPRINT.md`: directory boundaries and dependency rules.
-- `OWNERS.md`: directory ownership and review responsibility.
-- `.github/CODEOWNERS`: PR review ownership mapping.
-
-## FAQ
-
-### Is AgentHub open source?
-
-AgentHub core is licensed under Apache-2.0. See `LICENSE`.
-
-### Are commercial plugins open source too?
-
-No. Commercial plugins, including PSBC policy/compliance plugins, are distributed
-separately under commercial terms and are not part of the Apache-2.0 core
-license.
-
-### Does AgentHub send my files to every provider?
-
-No provider receives hidden access to your files. A provider only receives the
-conversation context and tool results that the runtime sends for the current
-turn. Tool execution remains local and approval-aware.
-
-### Does provider switching transfer hidden model reasoning?
-
-No. Hidden reasoning and provider-private session state are not portable. The
-handoff is based on visible transcript, tool outputs, persisted thread state,
-and current workspace files.
-
-### Can I use AgentHub without the TUI?
-
-Yes. Use `--headless`, `--prompt`, `--stdin`, `--json`, or `--jsonl` for
-automation and CI-style flows.
-
-### Can I use only one provider?
-
-Yes. Multi-provider support is optional. You can configure one provider first
-and add others later.
-
-### Can AgentHub modify its own source code?
-
-Yes, when the current sandbox and approval policy permit file edits in the
-workspace. Use `workspace-write` for normal development and reserve full access
-for trusted sessions.
 
 ## License
 

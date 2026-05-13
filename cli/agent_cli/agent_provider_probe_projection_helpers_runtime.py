@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict
-
+from collections.abc import Callable
+from typing import Any
 
 PROBE_STREAM_MODE = "noop_turn_event_callback"
 PROBE_TRANSPORT = "real_provider_send"
@@ -27,7 +27,7 @@ def probe_not_configured_payload(
     *,
     selected_provider: str,
     selected_model: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     return {
         "provider_name": selected_provider,
         "provider_public_name": selected_provider,
@@ -50,7 +50,7 @@ def probe_success_payload(
     intent: Any,
     latency_ms: int,
     public_provider_name_fn: Callable[..., str],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     return {
         "provider_name": str(getattr(config, "provider_name", "") or "").strip(),
         "provider_public_name": provider_public_name_from_config(
@@ -78,7 +78,7 @@ def probe_failure_payload(
     exc: Exception,
     latency_ms: int,
     public_provider_name_fn: Callable[..., str],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     return {
         "provider_name": str(getattr(config, "provider_name", "") or selected_provider).strip(),
         "provider_public_name": provider_public_name_from_config(
@@ -102,13 +102,15 @@ def active_provider_identity(
     agent: Any,
     *,
     public_provider_name_fn: Callable[..., str],
-    session_provider_env_overrides_fn: Callable[[Any], Dict[str, str | None]],
+    session_provider_env_overrides_fn: Callable[[Any], dict[str, str | None]],
 ) -> tuple[str, str]:
     active_provider_name = ""
     active_provider_public_name = ""
-    if getattr(agent, "_planner", None) is not None:
+    planner = getattr(agent, "_planner", None)
+    summary_source = planner if planner is not None else getattr(agent, "_planner_config", None)
+    if summary_source is not None:
         try:
-            summary = dict(agent._planner.public_summary() or {})
+            summary = dict(summary_source.public_summary() or {})
         except Exception:
             summary = {}
         active_provider_name = str(summary.get("provider_name") or "").strip()
@@ -126,5 +128,7 @@ def active_provider_identity(
             session_provider_env_overrides_fn(agent).get("AGENT_CLI_PROVIDER") or ""
         ).strip()
     if not active_provider_public_name:
-        active_provider_public_name = public_provider_name_fn(provider_name=active_provider_name) or active_provider_name
+        active_provider_public_name = (
+            public_provider_name_fn(provider_name=active_provider_name) or active_provider_name
+        )
     return active_provider_name, active_provider_public_name

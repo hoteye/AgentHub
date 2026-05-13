@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from cli.agent_cli import runtime_runtime
 from cli.agent_cli.background_tasks import build_background_task_adapter
@@ -39,6 +40,8 @@ def runtime_request_user_input_default_mode_enabled(*, agent: Any) -> bool:
     planner = getattr(agent, "_planner", None)
     config = getattr(planner, "config", None)
     if config is None:
+        config = getattr(agent, "_planner_config", None)
+    if config is None:
         return False
     try:
         return bool(reference_default_mode_request_user_input(config))
@@ -50,5 +53,5 @@ def sync_runtime_request_user_input_mode(runtime: Any) -> bool:
     enabled = runtime_request_user_input_default_mode_enabled(
         agent=getattr(runtime, "agent", None),
     )
-    setattr(runtime, "default_mode_request_user_input", enabled)
+    runtime.default_mode_request_user_input = enabled
     return enabled

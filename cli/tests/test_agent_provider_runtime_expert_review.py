@@ -4,8 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from cli.agent_cli import agent_config_runtime
-from cli.agent_cli import agent_provider_runtime
+from cli.agent_cli import agent_config_runtime, agent_provider_runtime
 from cli.agent_cli.providers.availability_registry import AvailabilityRegistry
 from cli.agent_cli.providers.config_catalog import ProviderConfig
 from cli.agent_cli.providers.config_catalog_types import (
@@ -19,24 +18,27 @@ from cli.agent_cli.providers.config_catalog_types import (
 def test_expert_review_feature_settings_reads_merged_workspace_config() -> None:
     agent = SimpleNamespace(cwd=Path("/tmp/workspace"))
 
-    with patch(
-        "cli.agent_cli.agent_provider_probe_runtime._effective_home_provider_config_path",
-        return_value=Path("/tmp/runtime-home/config.toml"),
-    ), patch(
-        "cli.agent_cli.workspace_context.read_merged_project_toml",
-        return_value=(
-            {
-                "features": {
-                    "expert_review": {
-                        "enabled": False,
-                        "min_eligible_providers": 4,
-                        "prefer_cross_vendor": False,
-                    }
-                }
-            },
-            [],
+    with (
+        patch(
+            "cli.agent_cli.agent_provider_probe_runtime._effective_home_provider_config_path",
+            return_value=Path("/tmp/runtime-home/config.toml"),
         ),
-    ) as read_merged:
+        patch(
+            "cli.agent_cli.workspace_context.read_merged_project_toml",
+            return_value=(
+                {
+                    "features": {
+                        "expert_review": {
+                            "enabled": False,
+                            "min_eligible_providers": 4,
+                            "prefer_cross_vendor": False,
+                        }
+                    }
+                },
+                [],
+            ),
+        ) as read_merged,
+    ):
         settings = agent_provider_runtime.expert_review_feature_settings(agent)
 
     assert settings["enabled"] is False
@@ -223,14 +225,18 @@ def test_reload_planner_projects_expert_review_gate_snapshot_into_provider_confi
         agent,
         resolve_provider_paths_fn=lambda **_kwargs: "paths",
         load_provider_config_fn=lambda **_kwargs: config,
-        build_planner_fn=lambda planner_config, **_kwargs: captured.append(planner_config) or SimpleNamespace(),
+        build_planner_fn=lambda planner_config, **_kwargs: captured.append(planner_config)
+        or SimpleNamespace(),
     )
 
     assert captured
     planner_config = captured[0]
     assert planner_config.raw_provider["existing"] == "value"
     assert planner_config.raw_provider["expert_review_available"] is True
-    assert planner_config.raw_provider["expert_review_gate_snapshot"]["expert_review_available"] is True
+    assert (
+        planner_config.raw_provider["expert_review_gate_snapshot"]["expert_review_available"]
+        is True
+    )
 
 
 def test_reload_planner_preserves_gate_snapshot_from_existing_primary_provider_context() -> None:
@@ -281,11 +287,67 @@ def test_reload_planner_preserves_gate_snapshot_from_existing_primary_provider_c
         agent,
         resolve_provider_paths_fn=lambda **_kwargs: "paths",
         load_provider_config_fn=lambda **_kwargs: config,
-        build_planner_fn=lambda planner_config, **_kwargs: captured.append(planner_config) or SimpleNamespace(),
+        build_planner_fn=lambda planner_config, **_kwargs: captured.append(planner_config)
+        or SimpleNamespace(),
     )
 
     assert captured
     planner_config = captured[0]
     assert planner_config.raw_provider["expert_review_available"] is True
     assert planner_config.raw_provider["expert_review_unavailable_reason"] == "-"
-    assert planner_config.raw_provider["expert_review_gate_snapshot"]["primary_provider_name"] == "anthropic"
+    assert (
+        planner_config.raw_provider["expert_review_gate_snapshot"]["primary_provider_name"]
+        == "anthropic"
+    )
+
+
+def test_lazy_planner_defers_expert_review_gate_until_build() -> None:
+    captured: list[ProviderConfig] = []
+    config = ProviderConfig(
+        model="gpt-5.4",
+        api_key="test-key",
+        provider_name="openai",
+        raw_provider={"existing": "value"},
+    )
+    gate_calls = {"count": 0}
+    agent = SimpleNamespace(
+        _planner=None,
+        _planner_managed=False,
+        _planner_error=None,
+        _planner_runtime_error=None,
+        _planner_runtime_error_diagnostics=None,
+        _planner_config=None,
+        _planner_build_pending=False,
+        _session_provider_env_overrides={},
+        _session_route_overrides={},
+        _session_delegation_overrides={},
+        _runtime_policy_overrides={},
+        _plugin_manager_factory=None,
+        cwd=Path("/tmp/workspace"),
+        host_platform=SimpleNamespace(),
+    )
+
+    def _provider_review_gate():
+        gate_calls["count"] += 1
+        return {"expert_review_available": True}
+
+    agent.provider_review_gate = _provider_review_gate
+
+    agent_config_runtime.prepare_lazy_planner(
+        agent,
+        resolve_provider_paths_fn=lambda **_kwargs: "paths",
+        load_provider_config_fn=lambda **_kwargs: config,
+        apply_review_gate=False,
+    )
+
+    assert gate_calls["count"] == 0
+    assert agent._planner_config.raw_provider == {"existing": "value"}
+
+    agent_config_runtime.build_pending_planner(
+        agent,
+        build_planner_fn=lambda planner_config, **_kwargs: captured.append(planner_config)
+        or SimpleNamespace(),
+    )
+
+    assert gate_calls["count"] == 1
+    assert captured[0].raw_provider["expert_review_available"] is True

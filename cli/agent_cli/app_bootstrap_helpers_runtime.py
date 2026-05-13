@@ -12,6 +12,7 @@ from typing import Any
 
 from cli.agent_cli import app_runtime_support_runtime
 from cli.agent_cli.prompt_history import PromptHistoryManager, PromptHistoryStore
+from cli.agent_cli.startup_debug import startup_timer
 from cli.agent_cli.terminal_driver import AgentHubLinuxDriver
 from cli.agent_cli.ui.presentation import resolve_presentation_settings
 from cli.agent_cli.ui.prompt_transcript_window_runtime import PromptTranscriptWindowState
@@ -34,13 +35,16 @@ def build_bootstrap_context(
     language: str | None,
     theme_id: str | None,
 ) -> AppBootstrapContext:
-    workspace_root = app_runtime_support_runtime.workspace_root_for_runtime(runtime)
-    presentation = resolve_presentation_settings(
-        cwd=workspace_root,
-        lang=language,
-        theme_id=theme_id,
-    )
-    driver_class = AgentHubLinuxDriver if sys.platform != "win32" else None
+    with startup_timer("app.bootstrap.workspace_root"):
+        workspace_root = app_runtime_support_runtime.workspace_root_for_runtime(runtime)
+    with startup_timer("app.bootstrap.presentation_settings"):
+        presentation = resolve_presentation_settings(
+            cwd=workspace_root,
+            lang=language,
+            theme_id=theme_id,
+        )
+    with startup_timer("app.bootstrap.driver_class"):
+        driver_class = AgentHubLinuxDriver if sys.platform != "win32" else None
     return AppBootstrapContext(
         runtime=runtime,
         workspace_root=workspace_root,
@@ -56,19 +60,25 @@ def apply_pre_super_state(
     theme_id: str | None,
     context: AppBootstrapContext,
 ) -> None:
-    app._presentation_cli_language = language
-    app._presentation_cli_theme_id = theme_id
-    app._presentation = context.presentation
-    app._theme = context.presentation.theme
-    app._messages = context.presentation.messages
-    app.CSS = build_app_css(app._theme)
-    app._tab_manager = None
-    app._direct_runtime = None
-    app._direct_request_queue = None
-    app._direct_request_worker_task = None
-    app._direct_status_data = {}
-    app._status_data_session_override = None
-    app._codex_sidecar_kernel = None
+    with startup_timer("app.bootstrap.pre_super_state"):
+        app._presentation_cli_language = language
+        app._presentation_cli_theme_id = theme_id
+        app._presentation = context.presentation
+        app._theme = context.presentation.theme
+        app._messages = context.presentation.messages
+        app.CSS = build_app_css(app._theme)
+        app._tab_manager = None
+        app._direct_runtime = None
+        app._direct_request_queue = None
+        app._direct_request_worker_task = None
+        app._direct_status_data = {}
+        app._status_data_session_override = None
+        app._codex_sidecar_kernel = None
+        app._codex_sidecar_restore_prefetch = getattr(
+            context.runtime,
+            "_codex_sidecar_restore_prefetch",
+            None,
+        )
 
 
 def initialize_app_state(
@@ -77,25 +87,32 @@ def initialize_app_state(
     prompt_history_home: Path | None,
     context: AppBootstrapContext,
 ) -> None:
-    app.title = app._messages.text("app.title")
-    app.sub_title = app._subtitle_text(False)
-    _initialize_tab_manager_state(app)
-    _initialize_title_state(app)
-    _initialize_live_turn_state(app)
-    _initialize_transcript_state(app)
-    _initialize_runtime_state(app, runtime=context.runtime)
-    manifest_restored = _restore_tab_manager_state(app, runtime=context.runtime)
-    _initialize_request_tracking_state(
-        app,
-        prompt_history_home=prompt_history_home,
-        workspace_root=context.workspace_root,
-    )
-    _initialize_shutdown_state(app)
-    app._tab_manifest_restored = manifest_restored
-    initial_thread_title = app._resolve_thread_title_from_runtime(refresh_from_store=False)
-    if initial_thread_title and not manifest_restored:
-        app._top_title_text = initial_thread_title
-    app._transcript_task_hint_text = app._resolve_transcript_task_hint_text()
+    with startup_timer("app.bootstrap.initialize_app_state"):
+        app.title = app._messages.text("app.title")
+        app.sub_title = app._subtitle_text(False)
+        with startup_timer("app.bootstrap.tab_manager_state"):
+            _initialize_tab_manager_state(app)
+        _initialize_title_state(app)
+        _initialize_live_turn_state(app)
+        _initialize_transcript_state(app)
+        with startup_timer("app.bootstrap.runtime_state"):
+            _initialize_runtime_state(app, runtime=context.runtime)
+        with startup_timer("app.bootstrap.tab_manifest_restore"):
+            manifest_restored = _restore_tab_manager_state(app, runtime=context.runtime)
+        with startup_timer("app.bootstrap.request_tracking_state"):
+            _initialize_request_tracking_state(
+                app,
+                prompt_history_home=prompt_history_home,
+                workspace_root=context.workspace_root,
+            )
+        _initialize_shutdown_state(app)
+        app._tab_manifest_restored = manifest_restored
+        with startup_timer("app.bootstrap.initial_thread_title"):
+            initial_thread_title = app._resolve_thread_title_from_runtime(refresh_from_store=False)
+        if initial_thread_title and not manifest_restored:
+            app._top_title_text = initial_thread_title
+        with startup_timer("app.bootstrap.transcript_task_hint"):
+            app._transcript_task_hint_text = app._resolve_transcript_task_hint_text()
 
 
 def _initialize_tab_manager_state(app: Any) -> None:
