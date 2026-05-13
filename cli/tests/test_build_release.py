@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
+import os
 import stat
 import struct
+import subprocess
+import tarfile
 import tempfile
 import unittest
 import zipfile
@@ -186,6 +190,83 @@ class BuildReleaseScriptTest(unittest.TestCase):
             patch.object(MODULE.packaging_helpers.platform, "machine", return_value="arm64"),
         ):
             self.assertEqual(MODULE.codex_platform_key(), "macos-arm64")
+
+    def test_install_script_cleanup_trap_survives_successful_install(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            version = "9.9.9"
+            platform_tag = "linux-x86_64"
+            archive_name = f"agenthub-cli-{version}-{platform_tag}.tar.gz"
+            bundle_root = root / f"agenthub-cli-{version}-{platform_tag}"
+            bundle_root.mkdir()
+            executable = bundle_root / "agenthub-cli"
+            executable.write_text(
+                "#!/usr/bin/env bash\nprintf 'AgentHub test\\n'\n", encoding="utf-8"
+            )
+            executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
+
+            archive_path = root / archive_name
+            with tarfile.open(archive_path, "w:gz") as archive:
+                archive.add(bundle_root, arcname=bundle_root.name)
+            digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+            checksum_path = root / f"{archive_name}.sha256"
+            checksum_path.write_text(f"{digest}  {archive_name}\n", encoding="utf-8")
+
+            bin_dir = root / "bin"
+            install_dir = root / "install"
+            fake_bin = root / "fake-bin"
+            fake_bin.mkdir()
+            curl = fake_bin / "curl"
+            curl.write_text(
+                "\n".join(
+                    [
+                        "#!/usr/bin/env bash",
+                        "set -euo pipefail",
+                        "out=''",
+                        'args=("$@")',
+                        "for ((i=0; i<${#args[@]}; i++)); do",
+                        "  if [[ \"${args[$i]}\" == '-o' ]]; then",
+                        '    out="${args[$((i + 1))]}"',
+                        "  fi",
+                        "done",
+                        'url="${args[$((${#args[@]} - 1))]}"',
+                        '[[ -n "$out" ]] || exit 2',
+                        'case "$url" in',
+                        '  *.sha256) cp "$FAKE_CHECKSUM" "$out" ;;',
+                        '  *) cp "$FAKE_ARCHIVE" "$out" ;;',
+                        "esac",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            curl.chmod(curl.stat().st_mode | stat.S_IXUSR)
+
+            env = os.environ.copy()
+            env.update(
+                {
+                    "PATH": f"{fake_bin}{os.pathsep}{env.get('PATH', '')}",
+                    "FAKE_ARCHIVE": str(archive_path),
+                    "FAKE_CHECKSUM": str(checksum_path),
+                    "AGENTHUB_INSTALL_REPO": "example/AgentHub",
+                    "AGENTHUB_INSTALL_VERSION": f"cli-v{version}",
+                    "AGENTHUB_INSTALL_DIR": str(install_dir),
+                    "AGENTHUB_BIN_DIR": str(bin_dir),
+                    "AGENTHUB_COMMAND_NAME": "agenthub-test",
+                }
+            )
+
+            result = subprocess.run(
+                ["bash", str(ROOT / "scripts" / "install_agenthub_cli.sh")],
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((bin_dir / "agenthub-test").exists())
+            self.assertNotIn("unbound variable", result.stdout + result.stderr)
 
     def test_package_output_onefile_replaces_stale_onedir_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

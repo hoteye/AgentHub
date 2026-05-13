@@ -8,6 +8,12 @@ The format is based on Keep a Changelog, with one release section per published 
 
 No unreleased changes yet.
 
+## [0.1.9] - 2026-05-13
+
+### Fixed
+
+- Fixed the public install script cleanup trap so Docker clean-install smoke succeeds under `set -u` after a successful install.
+
 ## [0.1.8] - 2026-05-13
 
 ### Added

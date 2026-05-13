@@ -6,6 +6,15 @@ REQUESTED_VERSION="${AGENTHUB_INSTALL_VERSION:-latest}"
 INSTALL_ROOT="${AGENTHUB_INSTALL_DIR:-$HOME/.local/agenthub-cli}"
 BIN_DIR="${AGENTHUB_BIN_DIR:-$HOME/.local/bin}"
 COMMAND_NAME="${AGENTHUB_COMMAND_NAME:-agenthub}"
+INSTALL_TMP_DIR=""
+
+cleanup() {
+  if [[ -n "${INSTALL_TMP_DIR:-}" ]]; then
+    rm -rf "$INSTALL_TMP_DIR"
+  fi
+}
+
+trap cleanup EXIT
 
 fail() {
   printf 'agenthub install failed: %s\n' "$*" >&2
@@ -123,7 +132,7 @@ main() {
   download_url="https://github.com/${REPO}/releases/download/${tag}/${archive_name}"
 
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  INSTALL_TMP_DIR="$tmp"
   archive="$tmp/$archive_name"
   extract_dir="$tmp/extract"
   mkdir -p "$extract_dir"
