@@ -282,6 +282,7 @@ class BuildReleaseScriptTest(unittest.TestCase):
             self.assertNotIn("unbound variable", result.stdout + result.stderr)
             wrapper_text = wrapper.read_text(encoding="utf-8")
             self.assertIn("should_use_tmux_preview_layout", wrapper_text)
+            self.assertIn('should_use_tmux_preview_layout "$@"', wrapper_text)
             self.assertIn("--headless|--serve|--provider-status", wrapper_text)
             self.assertIn("tmux new-session", wrapper_text)
 

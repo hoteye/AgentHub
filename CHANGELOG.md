@@ -8,6 +8,12 @@ The format is based on Keep a Changelog, with one release section per published 
 
 No unreleased changes yet.
 
+## [0.1.13] - 2026-05-15
+
+### Fixed
+
+- Fixed the installed `agenthub` launcher so no-argument interactive startup works under `set -u` on macOS and Windows Bash environments.
+
 ## [0.1.12] - 2026-05-15
 
 ### Changed

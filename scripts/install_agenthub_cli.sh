@@ -211,7 +211,7 @@ start_tmux_preview_layout_new_session() {
   tmux attach-session -t "$session_name"
 }
 
-if should_use_tmux_preview_layout "${ORIGINAL_ARGS[@]}"; then
+if should_use_tmux_preview_layout "$@"; then
   if [[ -n "${TMUX:-}" ]]; then
     start_tmux_preview_layout_in_current_session
   else
