@@ -8,6 +8,12 @@ The format is based on Keep a Changelog, with one release section per published 
 
 No unreleased changes yet.
 
+## [0.1.14] - 2026-05-15
+
+### Fixed
+
+- Fixed Windows release CI collection by avoiding unconditional `pty` imports in installer wrapper tests.
+
 ## [0.1.13] - 2026-05-15
 
 ### Fixed

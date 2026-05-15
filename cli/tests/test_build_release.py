@@ -4,7 +4,6 @@ import hashlib
 import importlib.util
 import json
 import os
-import pty
 import stat
 import struct
 import subprocess
@@ -15,6 +14,11 @@ import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+
+if os.name != "nt":
+    import pty
+else:
+    pty = None
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = ROOT / "cli" / "scripts" / "build_release.py"

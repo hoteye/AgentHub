@@ -14,10 +14,10 @@ STATUS_MESSAGES: dict[str, dict[str, str]] = {
         "fr": "/ commandes · ! shell · ? fermer · ctrl+o transcript",
     },
     "footer.shortcuts_overlay_line2": {
-        "en": "f2 split open · f3 split close · ctrl+p/n history · @ file paths",
-        "zh-CN": "F2 分屏开 · F3 分屏关 · Ctrl+P/N 历史 · @ 文件路径",
-        "ja": "f2 分割開く · f3 分割閉じる · ctrl+p/n 履歴 · @ ファイル参照",
-        "fr": "f2 panneau ouvert · f3 panneau ferme · ctrl+p/n historique · @ fichiers",
+        "en": "alt+enter / shift+enter newline · ctrl+p/n history · @ file paths",
+        "zh-CN": "Alt+Enter / Shift+Enter 换行 · Ctrl+P/N 历史 · @ 文件路径",
+        "ja": "alt+enter / shift+enter 改行 · ctrl+p/n 履歴 · @ ファイル参照",
+        "fr": "alt+enter / shift+enter nouvelle ligne · ctrl+p/n historique · @ fichiers",
     },
     "footer.queue_message": {
         "en": "tab to queue message",
