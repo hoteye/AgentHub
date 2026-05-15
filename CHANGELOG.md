@@ -8,6 +8,12 @@ The format is based on Keep a Changelog, with one release section per published 
 
 No unreleased changes yet.
 
+## [0.1.15] - 2026-05-15
+
+### Fixed
+
+- Added timeout and low-speed safeguards to the public installer downloads so slow checksum fetches cannot hang a fresh install indefinitely.
+
 ## [0.1.14] - 2026-05-15
 
 ### Fixed

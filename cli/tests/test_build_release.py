@@ -233,6 +233,7 @@ class BuildReleaseScriptTest(unittest.TestCase):
             fake_bin = root / "fake-bin"
             fake_bin.mkdir()
             curl = fake_bin / "curl"
+            curl_log = root / "curl.log"
             curl.write_text(
                 "\n".join(
                     [
@@ -245,10 +246,11 @@ class BuildReleaseScriptTest(unittest.TestCase):
                         '    out="${args[$((i + 1))]}"',
                         "  fi",
                         "done",
+                        'printf \'%s\\n\' "$*" >> "$FAKE_CURL_LOG"',
                         'url="${args[$((${#args[@]} - 1))]}"',
                         '[[ -n "$out" ]] || exit 2',
                         'case "$url" in',
-                        '  *.sha256) cp "$FAKE_CHECKSUM" "$out" ;;',
+                        '  *.sha256) [[ "${FAKE_CHECKSUM_UNAVAILABLE:-0}" == "1" ]] && exit 28; cp "$FAKE_CHECKSUM" "$out" ;;',
                         '  *) cp "$FAKE_ARCHIVE" "$out" ;;',
                         "esac",
                         "",
@@ -264,6 +266,7 @@ class BuildReleaseScriptTest(unittest.TestCase):
                     "PATH": f"{fake_bin}{os.pathsep}{env.get('PATH', '')}",
                     "FAKE_ARCHIVE": str(archive_path),
                     "FAKE_CHECKSUM": str(checksum_path),
+                    "FAKE_CURL_LOG": str(curl_log),
                     "AGENTHUB_INSTALL_REPO": "example/AgentHub",
                     "AGENTHUB_INSTALL_VERSION": f"cli-v{version}",
                     "AGENTHUB_INSTALL_DIR": str(install_dir),
@@ -289,6 +292,12 @@ class BuildReleaseScriptTest(unittest.TestCase):
             self.assertIn('should_use_tmux_preview_layout "$@"', wrapper_text)
             self.assertIn("--headless|--serve|--provider-status", wrapper_text)
             self.assertIn("tmux new-session", wrapper_text)
+            curl_log_text = curl_log.read_text(encoding="utf-8")
+            self.assertIn("--connect-timeout 20", curl_log_text)
+            self.assertIn("--max-time 1800", curl_log_text)
+            self.assertIn("--max-time 120", curl_log_text)
+            self.assertIn("--speed-limit 1024", curl_log_text)
+            self.assertIn("--speed-time 90", curl_log_text)
 
             syntax = subprocess.run(
                 ["bash", "-n", str(wrapper)],
@@ -413,6 +422,35 @@ class BuildReleaseScriptTest(unittest.TestCase):
             self.assertIn("new-session -d", tmux_log_text)
             self.assertIn("respawn-pane -k", tmux_log_text)
             self.assertIn("attach-session", tmux_log_text)
+
+            second_bin_dir = root / "bin-second"
+            second_install_dir = root / "install-second"
+            second_env = env.copy()
+            second_env.update(
+                {
+                    "AGENTHUB_INSTALL_DIR": str(second_install_dir),
+                    "AGENTHUB_BIN_DIR": str(second_bin_dir),
+                    "FAKE_CHECKSUM_UNAVAILABLE": "1",
+                }
+            )
+            second_result = subprocess.run(
+                ["bash", str(ROOT / "scripts" / "install_agenthub_cli.sh")],
+                env=second_env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(
+                second_result.returncode,
+                0,
+                second_result.stdout + second_result.stderr,
+            )
+            self.assertIn(
+                "checksum unavailable; continuing without sha256 verification",
+                second_result.stderr,
+            )
+            self.assertTrue((second_bin_dir / "agenthub-test").exists())
 
     def test_package_output_onefile_replaces_stale_onedir_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

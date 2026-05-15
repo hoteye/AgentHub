@@ -6,6 +6,11 @@ REQUESTED_VERSION="${AGENTHUB_INSTALL_VERSION:-latest}"
 INSTALL_ROOT="${AGENTHUB_INSTALL_DIR:-$HOME/.local/agenthub-cli}"
 BIN_DIR="${AGENTHUB_BIN_DIR:-$HOME/.local/bin}"
 COMMAND_NAME="${AGENTHUB_COMMAND_NAME:-agenthub}"
+CURL_CONNECT_TIMEOUT="${AGENTHUB_INSTALL_CONNECT_TIMEOUT:-20}"
+CURL_MAX_TIME="${AGENTHUB_INSTALL_MAX_TIME:-1800}"
+CURL_CHECKSUM_MAX_TIME="${AGENTHUB_INSTALL_CHECKSUM_MAX_TIME:-120}"
+CURL_LOW_SPEED_LIMIT="${AGENTHUB_INSTALL_LOW_SPEED_LIMIT:-1024}"
+CURL_LOW_SPEED_TIME="${AGENTHUB_INSTALL_LOW_SPEED_TIME:-90}"
 INSTALL_TMP_DIR=""
 
 cleanup() {
@@ -23,6 +28,17 @@ fail() {
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
+}
+
+curl_timed() {
+  local max_time="$1"
+  shift
+  curl \
+    --connect-timeout "$CURL_CONNECT_TIMEOUT" \
+    --max-time "$max_time" \
+    --speed-limit "$CURL_LOW_SPEED_LIMIT" \
+    --speed-time "$CURL_LOW_SPEED_TIME" \
+    "$@"
 }
 
 detect_platform_tag() {
@@ -56,7 +72,7 @@ resolve_release_tag() {
 
   local latest_url effective_url tag
   latest_url="https://github.com/${REPO}/releases/latest"
-  effective_url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "$latest_url")"
+  effective_url="$(curl_timed "$CURL_CHECKSUM_MAX_TIME" -fsSLI -o /dev/null -w '%{url_effective}' "$latest_url")"
   tag="${effective_url##*/}"
   [[ -n "$tag" && "$tag" != "latest" ]] || fail "could not resolve latest release tag"
   printf '%s\n' "$tag"
@@ -67,7 +83,7 @@ verify_checksum_if_available() {
   local checksum_url="$2"
   local checksum_file expected actual
   checksum_file="${archive}.sha256"
-  if ! curl -fsSL --retry 3 -o "$checksum_file" "$checksum_url"; then
+  if ! curl_timed "$CURL_CHECKSUM_MAX_TIME" -fsSL --retry 3 -o "$checksum_file" "$checksum_url"; then
     printf 'checksum unavailable; continuing without sha256 verification\n' >&2
     return
   fi
@@ -285,7 +301,7 @@ main() {
   mkdir -p "$extract_dir"
 
   printf 'Downloading AgentHub %s for %s...\n' "$tag" "$platform_tag"
-  curl -fL --retry 3 -o "$archive" "$download_url"
+  curl_timed "$CURL_MAX_TIME" -fL --retry 3 -o "$archive" "$download_url"
   verify_checksum_if_available "$archive" "${download_url}.sha256"
 
   if [[ "$archive_ext" == "zip" ]]; then
