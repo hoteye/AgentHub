@@ -1,19 +1,8 @@
 from __future__ import annotations
 
-import json
-import os
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from shutil import copy2
-
-from cli.agent_cli.runtime_paths import (
-    LEGACY_PROJECT_LOCAL_DATA_DIRNAMES,
-    PROJECT_LOCAL_DATA_DIRNAME,
-    PROJECT_ROOT_ENV,
-    is_frozen_runtime,
-    project_local_data_dir,
-)
 
 from .models import (
     ActionRequest,
@@ -21,59 +10,26 @@ from .models import (
     AuditRecord,
     GatewayEvent,
     WorkflowRun,
-    action_request_from_mapping,
-    approval_ticket_from_mapping,
-    audit_record_from_mapping,
-    gateway_event_from_mapping,
-    workflow_run_from_mapping,
+)
+from .state_store_jsonl_runtime import (
+    append_jsonl_record,
+    load_existing_jsonl_records_in_background,
+    load_jsonl_records_into_store,
+)
+from .state_store_paths_runtime import (
+    _GATEWAY_JSONL_FILENAMES,
+    _default_gateway_base_dir,
+    _default_gateway_project_root,
+    _legacy_gateway_base_dirs,
+    _migrate_legacy_gateway_state,
+    _safe_resolve,
 )
 
-_GATEWAY_JSONL_FILENAMES = {
-    "events": "events.jsonl",
-    "workflow_runs": "workflow_runs.jsonl",
-    "action_requests": "action_requests.jsonl",
-    "approval_tickets": "approval_tickets.jsonl",
-    "audit_records": "audit_records.jsonl",
-}
-
-
-def _safe_resolve(path: Path) -> Path:
-    try:
-        return path.expanduser().resolve()
-    except OSError:
-        return path.expanduser()
-
-
-def _default_gateway_project_root() -> Path:
-    configured = str(os.environ.get(PROJECT_ROOT_ENV) or "").strip()
-    if configured:
-        return _safe_resolve(Path(configured))
-    return _safe_resolve(Path(__file__).resolve().parents[2])
-
-
-def _default_gateway_base_dir(*, root: Path | None = None) -> Path:
-    if root is None and is_frozen_runtime():
-        return project_local_data_dir() / "gateway"
-    project_root = _safe_resolve(root or _default_gateway_project_root())
-    return project_root / PROJECT_LOCAL_DATA_DIRNAME / "gateway"
-
-
-def _legacy_gateway_base_dirs(*, root: Path | None = None) -> list[Path]:
-    project_root = _safe_resolve(root or _default_gateway_project_root())
-    return [project_root / dirname / "gateway" for dirname in LEGACY_PROJECT_LOCAL_DATA_DIRNAMES]
-
-
-def _migrate_legacy_gateway_state(preferred_dir: Path, *, root: Path | None = None) -> None:
-    preferred_dir.mkdir(parents=True, exist_ok=True)
-    for legacy_dir in _legacy_gateway_base_dirs(root=root):
-        if not legacy_dir.exists() or legacy_dir == preferred_dir:
-            continue
-        for filename in _GATEWAY_JSONL_FILENAMES.values():
-            source = legacy_dir / filename
-            target = preferred_dir / filename
-            if not source.exists() or target.exists():
-                continue
-            copy2(source, target)
+_PATH_HELPER_COMPAT_EXPORTS = (
+    _default_gateway_project_root,
+    _legacy_gateway_base_dirs,
+    _safe_resolve,
+)
 
 
 @dataclass(slots=True)
@@ -216,39 +172,6 @@ class InMemoryGatewayStateStore:
         return items[: max(1, int(limit))]
 
 
-def _load_jsonl_records_into_store(
-    store: InMemoryGatewayStateStore,
-    files: dict[str, Path],
-) -> None:
-    loaders = {
-        "events": lambda payload: InMemoryGatewayStateStore.save_event(
-            store, gateway_event_from_mapping(payload)
-        ),
-        "workflow_runs": lambda payload: InMemoryGatewayStateStore.save_workflow_run(
-            store, workflow_run_from_mapping(payload)
-        ),
-        "action_requests": lambda payload: InMemoryGatewayStateStore.save_action_request(
-            store, action_request_from_mapping(payload)
-        ),
-        "approval_tickets": lambda payload: InMemoryGatewayStateStore.save_approval_ticket(
-            store, approval_ticket_from_mapping(payload)
-        ),
-        "audit_records": lambda payload: InMemoryGatewayStateStore.append_audit_record(
-            store, audit_record_from_mapping(payload)
-        ),
-    }
-    for key, target in files.items():
-        if not target.exists():
-            continue
-        with target.open("r", encoding="utf-8") as handle:
-            for raw_line in handle:
-                line = raw_line.strip()
-                if not line:
-                    continue
-                payload = json.loads(line)
-                loaders[key](payload)
-
-
 class JsonlGatewayStateStore(InMemoryGatewayStateStore):
     def __init__(self, base_dir: str | Path) -> None:
         super().__init__()
@@ -269,13 +192,10 @@ class JsonlGatewayStateStore(InMemoryGatewayStateStore):
         return cls(root)
 
     def _append_jsonl(self, key: str, payload: dict) -> None:
-        target = self._files[key]
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        append_jsonl_record(self._files, key, payload)
 
     def _load_existing(self) -> None:
-        _load_jsonl_records_into_store(self, self._files)
+        load_jsonl_records_into_store(self, self._files)
 
     def save_event(self, item: GatewayEvent) -> GatewayEvent:
         with self._lock:
@@ -334,44 +254,14 @@ class LazyJsonlGatewayStateStore(InMemoryGatewayStateStore):
         return self._load_complete.wait(timeout)
 
     def _append_jsonl(self, key: str, payload: dict) -> None:
-        target = self._files[key]
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        append_jsonl_record(self._files, key, payload)
 
     def _load_existing_in_background(self) -> None:
-        loaded = InMemoryGatewayStateStore()
-        try:
-            _load_jsonl_records_into_store(loaded, self._files)
-            with self._lock:
-                pending_events = dict(self.events)
-                pending_workflow_runs = dict(self.workflow_runs)
-                pending_action_requests = dict(self.action_requests)
-                pending_approval_tickets = dict(self.approval_tickets)
-                pending_audit_records = list(self.audit_records)
-                self.events = dict(loaded.events)
-                self.workflow_runs = dict(loaded.workflow_runs)
-                self.action_requests = dict(loaded.action_requests)
-                self.approval_tickets = dict(loaded.approval_tickets)
-                self.audit_records = list(loaded.audit_records)
-                self.events.update(pending_events)
-                self.workflow_runs.update(pending_workflow_runs)
-                self.action_requests.update(pending_action_requests)
-                self.approval_tickets.update(pending_approval_tickets)
-                seen_audit_ids = {
-                    str(getattr(record, "audit_id", "") or "") for record in self.audit_records
-                }
-                for record in pending_audit_records:
-                    audit_id = str(getattr(record, "audit_id", "") or "")
-                    if audit_id and audit_id in seen_audit_ids:
-                        continue
-                    self.audit_records.append(record)
-                    if audit_id:
-                        seen_audit_ids.add(audit_id)
-        except Exception as exc:
-            self._load_error = exc
-        finally:
-            self._load_complete.set()
+        load_existing_jsonl_records_in_background(
+            self,
+            self._files,
+            InMemoryGatewayStateStore,
+        )
 
     def save_event(self, item: GatewayEvent) -> GatewayEvent:
         with self._lock:

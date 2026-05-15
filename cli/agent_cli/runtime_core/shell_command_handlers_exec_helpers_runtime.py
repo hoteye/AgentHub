@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+import cli.agent_cli.runtime_core.shell_command_handlers_exec_policy_runtime as exec_policy_runtime
 from cli.agent_cli import approval_contract_runtime
 from cli.agent_cli.debug_timeline import json_ready, log_timeline, timeline_debug_enabled
 from cli.agent_cli.models import (
@@ -14,7 +15,6 @@ from cli.agent_cli.models import (
 from cli.agent_cli.runtime_action_policy_runtime import evaluate_exec_command_action_policy
 from cli.agent_cli.runtime_core import (
     shell_command_handlers_exec_helpers_apply_patch_runtime,
-    shell_command_handlers_exec_helpers_blocking_runtime,
     shell_command_handlers_exec_helpers_execution_runtime,
     shell_command_handlers_pure_helpers_runtime,
     shell_command_handlers_runtime,
@@ -22,6 +22,14 @@ from cli.agent_cli.runtime_core import (
 from cli.agent_cli.runtime_core.command_usage import _command_usage_text
 from cli.agent_cli.runtime_services import command_policy_runtime
 from cli.agent_cli.slash_parser import SlashInvocation
+
+_active_run_text = exec_policy_runtime._active_run_text
+_user_explicitly_forbids_tool = exec_policy_runtime._user_explicitly_forbids_tool
+_blocked_exec_command_refusal_text = exec_policy_runtime._blocked_exec_command_refusal_text
+_blocked_exec_command_item_events = exec_policy_runtime._blocked_exec_command_item_events
+_blocked_exec_command_result = exec_policy_runtime._blocked_exec_command_result
+_codex_read_only_exec_failure_result = exec_policy_runtime._codex_read_only_exec_failure_result
+_request_shell_approval_for_exec = exec_policy_runtime._request_shell_approval_for_exec
 
 
 def _preview_text(value: Any, *, max_chars: int = 240) -> str:
@@ -50,16 +58,6 @@ def _canonical_exec_output_text(payload: dict[str, Any]) -> str:
     return shell_command_handlers_exec_helpers_execution_runtime.canonical_exec_output_text(payload)
 
 
-def _active_run_text(runtime: Any) -> str:
-    return shell_command_handlers_exec_helpers_blocking_runtime.active_run_text(runtime)
-
-
-def _user_explicitly_forbids_tool(user_text: str, tool_name: str) -> bool:
-    return shell_command_handlers_exec_helpers_blocking_runtime.user_explicitly_forbids_tool(
-        user_text, tool_name
-    )
-
-
 def _command_looks_like_inline_apply_patch(command_text: str) -> bool:
     return shell_command_handlers_exec_helpers_apply_patch_runtime.command_looks_like_inline_apply_patch(
         command_text
@@ -69,30 +67,6 @@ def _command_looks_like_inline_apply_patch(command_text: str) -> bool:
 def _inline_apply_patch_text(command_text: str) -> str:
     return shell_command_handlers_exec_helpers_apply_patch_runtime.inline_apply_patch_text(
         command_text
-    )
-
-
-def _blocked_exec_command_refusal_text(command_text: str) -> str:
-    return shell_command_handlers_exec_helpers_blocking_runtime.blocked_exec_command_refusal_text(
-        command_text,
-        looks_like_inline_apply_patch=_command_looks_like_inline_apply_patch,
-    )
-
-
-def _blocked_exec_command_item_events(refusal_text: str) -> list[dict[str, Any]]:
-    return shell_command_handlers_exec_helpers_blocking_runtime.blocked_exec_command_item_events(
-        refusal_text
-    )
-
-
-def _blocked_exec_command_result(
-    runtime: Any, *, command_text: str
-) -> CommandExecutionResult | None:
-    return shell_command_handlers_exec_helpers_blocking_runtime.blocked_exec_command_result(
-        runtime,
-        command_text=command_text,
-        looks_like_inline_apply_patch=_command_looks_like_inline_apply_patch,
-        tool_trace=_tool_trace,
     )
 
 
@@ -108,19 +82,6 @@ def _inline_apply_patch_workspace_root(runtime: Any, *, workdir: str | None):
 def _codex_apply_patch_exec_output(success_text: str) -> str:
     return shell_command_handlers_exec_helpers_apply_patch_runtime.codex_apply_patch_exec_output(
         success_text
-    )
-
-
-def _codex_read_only_exec_failure_result(
-    *,
-    request: shell_command_handlers_pure_helpers_runtime.ExecCommandRequest,
-    policy_payload: dict[str, Any],
-) -> CommandExecutionResult:
-    return (
-        shell_command_handlers_exec_helpers_execution_runtime.codex_read_only_exec_failure_result(
-            request=request,
-            policy_payload=policy_payload,
-        )
     )
 
 
@@ -159,12 +120,6 @@ def _exec_command_arguments(
         request=request,
         resolved_shell=resolved_shell,
         compact_arguments=compact_arguments,
-    )
-
-
-def _request_shell_approval_for_exec(runtime: Any, command: str, **kwargs: Any) -> ToolEvent:
-    return shell_command_handlers_exec_helpers_execution_runtime.request_shell_approval_for_exec(
-        runtime, command, **kwargs
     )
 
 

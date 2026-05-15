@@ -1,13 +1,38 @@
 from __future__ import annotations
 
 import os
-import shlex
 import shutil
 import subprocess
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from cli.agent_cli.ui.transcript_preview_pane_tmux_commands import (
+    directory_opener_install_command as directory_opener_install_command,
+)
+from cli.agent_cli.ui.transcript_preview_pane_tmux_commands import (
+    directory_opener_install_prompt_shell_command,
+    preview_command_for_target,
+    preview_shell_command,
+    tmux_display_message_command,
+    tmux_kill_pane_command,
+    tmux_pane_border_style_commands,
+    tmux_respawn_pane_command,
+    tmux_split_preview_pane_command,
+    url_opener_install_prompt_shell_command,
+)
+from cli.agent_cli.ui.transcript_preview_pane_tmux_commands import (
+    directory_opener_package_commands as directory_opener_package_commands,
+)
+from cli.agent_cli.ui.transcript_preview_pane_tmux_commands import (
+    tmux_preview_ready_shell_command as tmux_preview_ready_shell_command,
+)
+from cli.agent_cli.ui.transcript_preview_pane_tmux_commands import (
+    url_opener_install_command as url_opener_install_command,
+)
+from cli.agent_cli.ui.transcript_preview_pane_tmux_commands import (
+    url_opener_package_commands as url_opener_package_commands,
+)
 from cli.agent_cli.ui.transcript_preview_target import PreviewTarget
 
 
@@ -52,7 +77,7 @@ def open_target_in_preview(
     preview_pane = ensure_preview_pane(preview_pane, run=run)
     if not preview_pane:
         return PreviewOpenResult(False, "preview_pane_unavailable", target=target)
-    tmux_command = ("tmux", "respawn-pane", "-k", "-t", preview_pane, "--", shell_command)
+    tmux_command = tmux_respawn_pane_command(preview_pane, shell_command)
     try:
         completed = run(list(tmux_command), check=False)
     except Exception:
@@ -64,7 +89,7 @@ def open_target_in_preview(
         )
         if revived_pane:
             os.environ["AGENTHUB_PREVIEW_PANE"] = revived_pane
-            retry_command = ("tmux", "respawn-pane", "-k", "-t", revived_pane, "--", shell_command)
+            retry_command = tmux_respawn_pane_command(revived_pane, shell_command)
             try:
                 retry_completed = run(list(retry_command), check=False)
             except Exception:
@@ -142,7 +167,7 @@ def close_preview_pane(
             os.environ.pop("AGENTHUB_PREVIEW_PANE", None)
         return False
     try:
-        completed = run(["tmux", "kill-pane", "-t", preview_pane], check=False)
+        completed = run(tmux_kill_pane_command(preview_pane), check=False)
     except Exception:
         return False
     if int(getattr(completed, "returncode", 1) or 0) != 0:
@@ -159,7 +184,7 @@ def _tmux_pane_exists(
 ) -> bool:
     try:
         completed = run(
-            ["tmux", "display-message", "-p", "-t", pane, "#{pane_id}"],
+            tmux_display_message_command(pane),
             check=False,
             capture_output=True,
             text=True,
@@ -191,12 +216,7 @@ def _split_preview_pane(
         os.environ.get("AGENTHUB_PREVIEW_WORKSPACE") or os.environ.get("AGENTHUB_STARTUP_CWD") or ""
     )
     tui_pane = str(os.environ.get("AGENTHUB_TUI_PANE") or os.environ.get("TMUX_PANE") or "").strip()
-    command = ["tmux", "split-window", "-d", "-h", "-l", "50%", "-P", "-F", "#{pane_id}"]
-    if tui_pane:
-        command.extend(["-t", tui_pane])
-    if workspace:
-        command.extend(["-c", workspace])
-    command.append(tmux_preview_ready_shell_command())
+    command = tmux_split_preview_pane_command(workspace=workspace, tui_pane=tui_pane)
     try:
         completed = run(
             command,
@@ -212,188 +232,12 @@ def _split_preview_pane(
     new_pane = output_lines[-1].strip() if output_lines else ""
     if new_pane:
         border_bg = os.environ.get("AGENTHUB_TMUX_PANE_BORDER_BG") or "#11161c"
-        for target in (new_pane, tui_pane or new_pane):
-            run(
-                ["tmux", "set-option", "-w", "-t", target, "pane-border-style", f"fg={border_bg}"],
-                check=False,
-            )
-            run(
-                [
-                    "tmux",
-                    "set-option",
-                    "-w",
-                    "-t",
-                    target,
-                    "pane-active-border-style",
-                    f"fg={border_bg}",
-                ],
-                check=False,
-            )
+        for command in tmux_pane_border_style_commands(
+            (new_pane, tui_pane or new_pane),
+            border_bg=border_bg,
+        ):
+            run(command, check=False)
     return new_pane
-
-
-def tmux_preview_ready_shell_command(*, shell: str | None = None) -> str:
-    shell_path = str(shell or os.environ.get("SHELL") or "/bin/bash").strip() or "/bin/bash"
-    return (
-        "printf 'AgentHub Preview ready\\n"
-        "/preview [open|close|toggle|status]\\n'; "
-        f"exec {shlex.quote(shell_path)}"
-    )
-
-
-def preview_shell_command(command: Sequence[str], *, shell: str | None = None) -> str:
-    target_command = " ".join(shlex.quote(str(part)) for part in command)
-    shell_path = str(shell or os.environ.get("SHELL") or "/bin/bash").strip() or "/bin/bash"
-    return f"{target_command}; exec {shlex.quote(shell_path)}"
-
-
-def url_opener_install_command(
-    *,
-    command_lookup: Callable[[str], str | None] = shutil.which,
-) -> str:
-    install_command, _uninstall_command = url_opener_package_commands(command_lookup=command_lookup)
-    return install_command
-
-
-def url_opener_package_commands(
-    *,
-    command_lookup: Callable[[str], str | None] = shutil.which,
-) -> tuple[str, str]:
-    if command_lookup("apt"):
-        return ("sudo apt update && sudo apt install w3m", "sudo apt remove w3m")
-    if command_lookup("apt-get"):
-        return ("sudo apt-get update && sudo apt-get install w3m", "sudo apt-get remove w3m")
-    if command_lookup("brew"):
-        return ("brew install w3m", "brew uninstall w3m")
-    if command_lookup("dnf"):
-        return ("sudo dnf install w3m", "sudo dnf remove w3m")
-    if command_lookup("yum"):
-        return ("sudo yum install w3m", "sudo yum remove w3m")
-    if command_lookup("pacman"):
-        return ("sudo pacman -S w3m", "sudo pacman -R w3m")
-    if command_lookup("zypper"):
-        return ("sudo zypper install w3m", "sudo zypper remove w3m")
-    if command_lookup("apk"):
-        return ("sudo apk add w3m", "sudo apk del w3m")
-    return ("", "")
-
-
-def directory_opener_install_command(
-    *,
-    command_lookup: Callable[[str], str | None] = shutil.which,
-) -> str:
-    return ""
-
-
-def directory_opener_package_commands(
-    *,
-    command_lookup: Callable[[str], str | None] = shutil.which,
-) -> tuple[str, str]:
-    return ("", "")
-
-
-def url_opener_install_prompt_shell_command(
-    install_command: str,
-    *,
-    uninstall_command: str = "",
-    shell: str | None = None,
-) -> str:
-    shell_path = str(shell or os.environ.get("SHELL") or "/bin/bash").strip() or "/bin/bash"
-    lines = [
-        "AgentHub URL preview needs a terminal browser.",
-        "Install w3m, then click the URL again.",
-    ]
-    script = f"printf '%s\\n' {' '.join(shlex.quote(line) for line in lines)}; "
-    install_command = str(install_command or "").strip()
-    if install_command:
-        script += (
-            f"printf '%s\\n' {shlex.quote(f'Uninstall later: {uninstall_command}')}; "
-            if uninstall_command
-            else ""
-        )
-        script += (
-            "printf '%s\\n' 'Press Enter to run the suggested command, or edit it first.'; "
-            f"read -e -i {shlex.quote(install_command)} -p '$ ' agenthub_preview_install_cmd; "
-            'if [ -n "$agenthub_preview_install_cmd" ]; then '
-            'eval "$agenthub_preview_install_cmd"; '
-            "fi; "
-        )
-    else:
-        script += (
-            "printf '%s\\n' "
-            "'No supported package manager was detected. Install w3m or lynx manually.'; "
-        )
-    script += f"exec {shlex.quote(shell_path)}"
-    return f"bash -lc {shlex.quote(script)}"
-
-
-def directory_opener_install_prompt_shell_command(
-    *,
-    shell: str | None = None,
-) -> str:
-    shell_path = str(shell or os.environ.get("SHELL") or "/bin/bash").strip() or "/bin/bash"
-    lines = [
-        "AgentHub directory preview needs a terminal file manager.",
-        "Install one of: yazi, mc, ranger.",
-        "  yazi: https://yazi-rs.github.io",
-    ]
-    script = f"printf '%s\\n' {' '.join(shlex.quote(line) for line in lines)}; "
-    script += f"exec {shlex.quote(shell_path)}"
-    return f"bash -lc {shlex.quote(script)}"
-
-
-def preview_command_for_target(
-    target: PreviewTarget,
-    *,
-    opener_lookup: Callable[[str], str | None] = shutil.which,
-) -> tuple[str, ...]:
-    if target.kind == "url":
-        resolved_w3m = opener_lookup("w3m")
-        if resolved_w3m:
-            return (resolved_w3m, "-o", "use_mouse=1", target.value)
-        resolved_lynx = opener_lookup("lynx")
-        if resolved_lynx:
-            return (resolved_lynx, "-use_mouse", target.value)
-        return ()
-    if target.kind == "dir":
-        resolved_yazi = opener_lookup("yazi")
-        if resolved_yazi:
-            return (resolved_yazi, target.value)
-        resolved_mc = opener_lookup("mc")
-        if resolved_mc:
-            return (resolved_mc, target.value)
-        resolved_ranger = opener_lookup("ranger")
-        if resolved_ranger:
-            return (resolved_ranger, target.value)
-        resolved_ls = opener_lookup("ls")
-        if resolved_ls:
-            return (resolved_ls, "-la", "--color=auto", target.value)
-        return ()
-    if target.kind != "file":
-        return ()
-    file_lower = target.value.lower()
-    if file_lower.endswith(".md") or file_lower.endswith(".markdown"):
-        resolved_glow = opener_lookup("glow")
-        if resolved_glow:
-            return (resolved_glow, "--style", "dark", "--", target.value)
-        resolved_mdcat = opener_lookup("mdcat")
-        if resolved_mdcat:
-            return (resolved_mdcat, "--", target.value)
-    line_arg = f"+{target.line_number}" if target.line_number else None
-    for opener in ("nvim", "vim"):
-        resolved = opener_lookup(opener)
-        if resolved:
-            mouse_args = ("-c", "set mouse=a")
-            number_args = ("-c", "set number") if target.line_number else ()
-            if line_arg:
-                return (resolved, "-R", *mouse_args, *number_args, line_arg, "--", target.value)
-            return (resolved, "-R", *mouse_args, "--", target.value)
-    resolved_less = opener_lookup("less")
-    if resolved_less:
-        if line_arg:
-            return (resolved_less, line_arg, "--", target.value)
-        return (resolved_less, "--", target.value)
-    return ()
 
 
 def _open_directory_opener_install_prompt(
@@ -407,7 +251,7 @@ def _open_directory_opener_install_prompt(
     if not preview_pane:
         return PreviewOpenResult(False, "preview_pane_unavailable", target=target)
     shell_command = directory_opener_install_prompt_shell_command()
-    tmux_command = ("tmux", "respawn-pane", "-k", "-t", preview_pane, "--", shell_command)
+    tmux_command = tmux_respawn_pane_command(preview_pane, shell_command)
     try:
         completed = run(list(tmux_command), check=False)
     except Exception:
@@ -447,7 +291,7 @@ def _open_url_opener_install_prompt(
         install_command,
         uninstall_command=uninstall_command,
     )
-    tmux_command = ("tmux", "respawn-pane", "-k", "-t", preview_pane, "--", shell_command)
+    tmux_command = tmux_respawn_pane_command(preview_pane, shell_command)
     try:
         completed = run(list(tmux_command), check=False)
     except Exception:

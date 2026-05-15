@@ -344,6 +344,7 @@ class PresentationControllerMixin:
             self._refresh_prompt_composer()
             self._refresh_transcript_rendering()
             self._update_tab_bar_compact(width)
+            self._update_split_toggle_compact(width)
         except NoMatches:
             return
         self._refresh_top_title_bar()
@@ -364,6 +365,17 @@ class PresentationControllerMixin:
                 widget.styles.scrollbar_size_vertical = scrollbar_width
             except NoMatches:
                 continue
+
+    def _update_split_toggle_compact(self, width: int) -> None:
+        try:
+            from textual.widgets import Static
+
+            btn = self.query_one("#split_toggle_btn", Static)
+            compact = width < 64
+            btn.styles.width = 1 if compact else 2
+        except NoMatches:
+            return
+        self._refresh_split_toggle_button()
 
     def _stabilize_initial_frame(self) -> None:
         startup_log("presentation.stabilize_initial_frame.begin")

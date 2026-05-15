@@ -20,6 +20,12 @@ from cli.agent_cli.runtime_services.shell_runtime_core_helpers import (
     _policy_denied_result,
     shell_result_from_event,
 )
+from cli.agent_cli.runtime_services.shell_runtime_core_helpers import (
+    shell_command_text as shell_command_text,
+)
+from cli.agent_cli.runtime_services.shell_runtime_core_helpers import (
+    shell_start_event_from_session as shell_start_event_from_session,
+)
 
 
 def normalize_shell_exec_mode(value: str | None) -> str:

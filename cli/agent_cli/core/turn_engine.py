@@ -9,8 +9,9 @@ from cli.agent_cli.core import turn_engine_helpers as turn_engine_helpers_servic
 from cli.agent_cli.core import (
     turn_engine_interrupt_runtime as turn_engine_interrupt_runtime_service,
 )
-from cli.agent_cli.core import turn_engine_round_runtime as turn_engine_round_runtime_service
-from cli.agent_cli.core import turn_engine_run_runtime as turn_engine_run_runtime_service
+from cli.agent_cli.core import (
+    turn_engine_run_loop_runtime as turn_engine_run_loop_runtime_service,
+)
 from cli.agent_cli.core import turn_engine_tool_runtime as turn_engine_tool_runtime_service
 from cli.agent_cli.core.provider_session import ProviderSession
 from cli.agent_cli.core.turn_engine_facade_runtime import TurnEngineFacadeMixin
@@ -18,9 +19,7 @@ from cli.agent_cli.models import (
     AgentIntent,
     ToolEvent,
     tool_event_is_interrupt,
-    tool_events_include_approval_requests,
 )
-from cli.agent_cli.runtime_services import approval_continuation_runtime
 
 FollowupHandler = Callable[..., AgentIntent]
 TerminalHandler = Callable[..., AgentIntent]
@@ -147,282 +146,22 @@ class TurnEngine(TurnEngineFacadeMixin):
         initial_executed_events: list[ToolEvent] | None = None,
         initial_executed_item_events: list[dict[str, Any]] | None = None,
     ) -> AgentIntent:
-        state = turn_engine_run_runtime_service.initialize_run_state(
+        return turn_engine_run_loop_runtime_service.run_turn_engine(
+            self,
             user_text=user_text,
             initial_input=initial_input,
             initial_previous_response_id=initial_previous_response_id,
+            prompt_cache_key=prompt_cache_key,
             initial_executed_events=initial_executed_events,
             initial_executed_item_events=initial_executed_item_events,
-        )
-        run_started_at = self.perf_counter_fn()
-        self._emit_turn_event({"type": "turn.started"})
-
-        while self.max_rounds is None or state.planning_rounds < self.max_rounds:
-            if self._interrupt_requested():
-                return self._interrupted_intent(
-                    executed_events=state.executed_events,
-                    executed_item_events=state.executed_item_events,
-                    model_ms=state.model_ms,
-                    tool_execution_ms=state.tool_execution_ms,
-                    planning_rounds=state.planning_rounds,
-                    planning_trace=state.planning_trace,
-                    total_ms=int((self.perf_counter_fn() - run_started_at) * 1000),
-                )
-            request_started_at = self.perf_counter_fn()
-            try:
-                step = self.session.send(
-                    input_items=state.input_items,
-                    allow_tools=state.allow_tools,
-                    previous_response_id=state.previous_response_id,
-                    prompt_cache_key=prompt_cache_key,
-                    turn_event_callback=self.turn_event_callback,
-                )
-            except Exception as exc:
-                if state.previous_response_id and state.executed_events and self.followup_handler:
-                    fallback = self._invoke_handler(
-                        self.followup_handler,
-                        user_text=user_text,
-                        executed_events=state.executed_events,
-                        executed_item_events=state.executed_item_events,
-                        previous_response_id=state.previous_response_id,
-                        continuation_input_items=state.replay_input_items,
-                        initial_send_error=exc,
-                    )
-                    return self._fallback_intent(
-                        fallback,
-                        executed_events=state.executed_events,
-                        executed_item_events=state.executed_item_events,
-                        model_ms=state.model_ms,
-                        tool_execution_ms=state.tool_execution_ms,
-                        planning_rounds=state.planning_rounds,
-                        total_ms=int((self.perf_counter_fn() - run_started_at) * 1000),
-                    )
-                if state.previous_response_id and state.executed_events and self.terminal_handler:
-                    fallback = self._invoke_handler(
-                        self.terminal_handler,
-                        user_text=user_text,
-                        executed_events=state.executed_events,
-                        executed_item_events=state.executed_item_events,
-                        previous_response_id=state.previous_response_id,
-                        continuation_input_items=state.replay_input_items,
-                        initial_send_error=exc,
-                    )
-                    return self._fallback_intent(
-                        fallback,
-                        executed_events=state.executed_events,
-                        executed_item_events=state.executed_item_events,
-                        model_ms=state.model_ms,
-                        tool_execution_ms=state.tool_execution_ms,
-                        planning_rounds=state.planning_rounds,
-                        total_ms=int((self.perf_counter_fn() - run_started_at) * 1000),
-                    )
-                raise
-
-            request_elapsed_ms = int((self.perf_counter_fn() - request_started_at) * 1000)
-            if self._interrupt_requested():
-                return self._interrupted_intent(
-                    executed_events=state.executed_events,
-                    executed_item_events=state.executed_item_events,
-                    model_ms=state.model_ms + request_elapsed_ms,
-                    tool_execution_ms=state.tool_execution_ms,
-                    planning_rounds=state.planning_rounds,
-                    planning_trace=state.planning_trace,
-                    total_ms=int((self.perf_counter_fn() - run_started_at) * 1000),
-                )
-            turn_engine_run_runtime_service.record_provider_round(
-                state=state,
-                step=step,
-                request_elapsed_ms=request_elapsed_ms,
-                trace_entry_builder=turn_engine_round_runtime_service.build_trace_entry,
-                summary_builder=_planner_trace_delegation_summary,
-                record_round_items_fn=turn_engine_round_runtime_service.record_tool_call_round_items,
-                emit_turn_event_fn=self._emit_turn_event,
-                preamble_text_builder=_tool_call_preamble_text,
-                synthetic_event_builder=_synthetic_agent_message_event,
-            )
-            terminal_resolution = turn_engine_round_runtime_service.resolve_terminal_round(
-                step=step,
-                interrupt_requested=self._interrupt_requested(),
-                fallback_on_empty_output=self.fallback_on_empty_output,
-                executed_events=state.executed_events,
-                executed_item_events=state.executed_item_events,
-                terminal_handler=self.terminal_handler,
-                user_text=user_text,
-                previous_response_id=state.previous_response_id,
-                continuation_input_items=state.input_items,
-                model_ms=state.model_ms,
-                tool_execution_ms=state.tool_execution_ms,
-                planning_rounds=state.planning_rounds,
-                planning_trace=state.planning_trace,
-                total_ms_builder=lambda: int((self.perf_counter_fn() - run_started_at) * 1000),
-                interrupted_intent_builder=lambda: self._interrupted_intent(
-                    executed_events=state.executed_events,
-                    executed_item_events=state.executed_item_events,
-                    model_ms=state.model_ms,
-                    tool_execution_ms=state.tool_execution_ms,
-                    planning_rounds=state.planning_rounds,
-                    planning_trace=state.planning_trace,
-                    total_ms=int((self.perf_counter_fn() - run_started_at) * 1000),
-                ),
-                final_intent_builder=self._final_intent,
-                handler_invoker=self._invoke_handler,
-                fallback_intent_builder=self._fallback_intent,
-                fallback_text_builder=_structured_tool_fallback_text,
-            )
-            if terminal_resolution is not None:
-                return terminal_resolution.intent
-
-            tool_outputs: list[dict[str, Any]] = []
-            continuation_input_items = [
-                dict(item)
-                for item in list(step.continuation_input_items or [])
-                if isinstance(item, dict)
-            ]
-            execution_results, batch_execution_ms = self._execute_tool_calls(
-                step.tool_calls,
-                initial_item_events=state.executed_item_events,
-            )
-            tool_outputs, interrupted = (
-                turn_engine_run_runtime_service.apply_tool_execution_results(
-                    state=state,
-                    execution_results=execution_results,
-                    batch_execution_ms=batch_execution_ms,
-                    emit_turn_events_fn=self._emit_turn_events,
-                    session=self.session,
-                    interrupt_requested_fn=self._interrupt_requested,
-                    annotate_trace_with_orchestration_outcomes_fn=_annotate_trace_with_orchestration_outcomes,
-                )
-            )
-            if interrupted:
-                return self._interrupted_intent(
-                    executed_events=state.executed_events,
-                    executed_item_events=state.executed_item_events,
-                    model_ms=state.model_ms,
-                    tool_execution_ms=state.tool_execution_ms,
-                    planning_rounds=state.planning_rounds,
-                    planning_trace=state.planning_trace,
-                    total_ms=int((self.perf_counter_fn() - run_started_at) * 1000),
-                )
-            if any(
-                tool_events_include_approval_requests(list(result.events or []))
-                for result in list(execution_results or [])
-            ):
-                runtime_owner = approval_continuation_runtime.runtime_from_tool_executor(
-                    self.tool_executor
-                )
-                if runtime_owner is not None:
-                    approval_continuation_runtime.attach_pending_tool_continuations_for_results(
-                        runtime_owner,
-                        execution_results=execution_results,
-                        previous_response_id=state.previous_response_id,
-                        replay_input_items=state.approval_replay_input_items,
-                        continuation_input_items=continuation_input_items,
-                        executed_item_events=state.executed_item_events,
-                    )
-                return self._final_intent(
-                    assistant_text=_structured_tool_fallback_text(state.executed_events),
-                    response_items=None,
-                    executed_events=state.executed_events,
-                    executed_item_events=state.executed_item_events,
-                    model_ms=state.model_ms,
-                    tool_execution_ms=state.tool_execution_ms,
-                    planning_rounds=state.planning_rounds,
-                    planning_trace=state.planning_trace,
-                    synthesis_model_ms=0,
-                    synthesis_rounds=0,
-                    total_ms=int((self.perf_counter_fn() - run_started_at) * 1000),
-                )
-            pending_input_items = self._take_pending_input_items()
-            if state.planning_trace and _orchestration_should_stop(state.planning_trace[-1]):
-                incremental_continuation = bool(
-                    state.previous_response_id
-                    and self._uses_incremental_continuation()
-                    and not bool(step.trace.get("provider_native_continuation_pending"))
-                )
-                next_input_items = turn_engine_round_runtime_service.next_round_input_items(
-                    continuation_input_items=continuation_input_items,
-                    tool_outputs=tool_outputs,
-                    pending_input_items=pending_input_items,
-                    incremental_continuation=incremental_continuation,
-                )
-                if state.executed_events and self.terminal_handler is not None:
-                    fallback = self._invoke_handler(
-                        self.terminal_handler,
-                        user_text=user_text,
-                        executed_events=state.executed_events,
-                        executed_item_events=state.executed_item_events,
-                        previous_response_id=state.previous_response_id,
-                        continuation_input_items=next_input_items,
-                    )
-                    return self._fallback_intent(
-                        fallback,
-                        executed_events=state.executed_events,
-                        executed_item_events=state.executed_item_events,
-                        model_ms=state.model_ms,
-                        tool_execution_ms=state.tool_execution_ms,
-                        planning_rounds=state.planning_rounds,
-                        total_ms=int((self.perf_counter_fn() - run_started_at) * 1000),
-                    )
-                return self._final_intent(
-                    assistant_text=_structured_tool_fallback_text(state.executed_events),
-                    response_items=None,
-                    executed_events=state.executed_events,
-                    executed_item_events=state.executed_item_events,
-                    model_ms=state.model_ms,
-                    tool_execution_ms=state.tool_execution_ms,
-                    planning_rounds=state.planning_rounds,
-                    planning_trace=state.planning_trace,
-                    synthesis_model_ms=0,
-                    synthesis_rounds=0,
-                    total_ms=int((self.perf_counter_fn() - run_started_at) * 1000),
-                )
-            turn_engine_run_runtime_service.prepare_next_round_input(
-                state=state,
-                continuation_input_items=continuation_input_items,
-                tool_call_items=turn_engine_run_runtime_service.tool_call_replay_items(
-                    step.tool_calls
-                ),
-                tool_outputs=tool_outputs,
-                pending_input_items=pending_input_items,
-                next_round_input_items_fn=turn_engine_round_runtime_service.next_round_input_items,
-                incremental_continuation=bool(
-                    state.previous_response_id
-                    and self._uses_incremental_continuation()
-                    and not bool(step.trace.get("provider_native_continuation_pending"))
-                ),
-            )
-
-        if state.executed_events and self.terminal_handler is not None:
-            fallback = self._invoke_handler(
-                self.terminal_handler,
-                user_text=user_text,
-                executed_events=state.executed_events,
-                executed_item_events=state.executed_item_events,
-                previous_response_id=state.previous_response_id,
-                continuation_input_items=state.replay_input_items,
-            )
-            return self._fallback_intent(
-                fallback,
-                executed_events=state.executed_events,
-                executed_item_events=state.executed_item_events,
-                model_ms=state.model_ms,
-                tool_execution_ms=state.tool_execution_ms,
-                planning_rounds=state.planning_rounds,
-                total_ms=int((self.perf_counter_fn() - run_started_at) * 1000),
-            )
-
-        return self._final_intent(
-            assistant_text=_structured_tool_fallback_text(state.executed_events),
-            response_items=None,
-            executed_events=state.executed_events,
-            executed_item_events=state.executed_item_events,
-            model_ms=state.model_ms,
-            tool_execution_ms=state.tool_execution_ms,
-            planning_rounds=state.planning_rounds,
-            planning_trace=state.planning_trace,
-            synthesis_model_ms=0,
-            synthesis_rounds=0,
-            total_ms=int((self.perf_counter_fn() - run_started_at) * 1000),
+            planner_trace_delegation_summary_fn=_planner_trace_delegation_summary,
+            structured_tool_fallback_text_fn=_structured_tool_fallback_text,
+            tool_call_preamble_text_fn=_tool_call_preamble_text,
+            synthetic_agent_message_event_fn=_synthetic_agent_message_event,
+            annotate_trace_with_orchestration_outcomes_fn=(
+                _annotate_trace_with_orchestration_outcomes
+            ),
+            orchestration_should_stop_fn=_orchestration_should_stop,
         )
 
     def _execute_tool_calls(

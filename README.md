@@ -48,7 +48,9 @@ curl -fsSL https://raw.githubusercontent.com/hoteye/AgentHub/main/scripts/instal
 The installer resolves the latest `cli-v*` release, downloads the matching
 `agenthub-cli-<version>-<platform>` archive, verifies the `.sha256` file when
 available, installs the bundle under `~/.local/agenthub-cli`, and writes an
-`agenthub` launcher to `~/.local/bin`.
+`agenthub` launcher to `~/.local/bin`. In interactive TUI mode on Linux/WSL,
+that launcher detects `tmux` and prepares the split-preview layout; headless,
+help, and provider-status commands run the binary directly.
 
 Run after installation:
 
@@ -159,10 +161,10 @@ The Linux release bundle includes the Codex sidecar runtime resources:
 
 ## Split Preview Pane
 
-On Linux/WSL systems with `tmux`, the source launcher starts AgentHub as a
-single TUI window. When you click a transcript file path, directory,
-`path:line` target, or URL, AgentHub creates a right-side tmux preview pane and
-opens the target there:
+On Linux/WSL systems with `tmux`, the installed `agenthub` launcher and the
+source launcher start AgentHub as a single TUI window prepared for preview. When
+you click a transcript file path, directory, `path:line` target, or URL,
+AgentHub creates a right-side tmux preview pane and opens the target there:
 
 - files and `path:line` targets open in `nvim`, `vim`, or `less`;
 - directories open in a terminal file browser when available;

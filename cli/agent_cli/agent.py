@@ -15,26 +15,19 @@ from cli.agent_cli import (
     agent_runtime,
     agent_runtime_helpers,
 )
+from cli.agent_cli import (
+    agent_selection_facade_runtime as _agent_selection_facade_runtime,
+)
 from cli.agent_cli.agent_constants import (
     LIST_DIR_KEYS,
     PWD_KEYS,
     PYTHON_VERSION_KEYS,
 )
-from cli.agent_cli.agent_constants import (
-    REASONING_EFFORT_LEVELS as _REASONING_EFFORT_LEVELS,
-)
 from cli.agent_cli.agent_provider_coordination import (
     SESSION_MODEL_DEFAULT_TOKENS,
     SESSION_ROUTE_OVERRIDE_SOURCE,
     STANDARD_DELEGATION_NAMES,
-    STANDARD_ROUTE_NAMES,
     AgentProviderRuntimeMixin,
-)
-from cli.agent_cli.agent_selection_runtime import (
-    config_with_session_delegation_overrides as _config_with_session_delegation_overrides,
-)
-from cli.agent_cli.agent_selection_runtime import (
-    config_with_session_route_overrides as _config_with_session_route_overrides,
 )
 from cli.agent_cli.host_platform import HostPlatform, current_host_platform
 from cli.agent_cli.models import AgentIntent, PromptAttachment, ToolEvent
@@ -161,23 +154,13 @@ class RuleBasedAgent(AgentProviderRuntimeMixin):
         self._provider_availability_registry = registry
         self._sync_provider_availability_registry()
 
-    @staticmethod
-    def _validated_reasoning_effort(reasoning_effort: str) -> str:
-        return agent_provider_runtime.validated_reasoning_effort(
-            reasoning_effort, reasoning_effort_levels=_REASONING_EFFORT_LEVELS
-        )
-
-    @staticmethod
-    def _validated_route_name(route_name: str) -> str:
-        return agent_provider_runtime.validated_route_name(
-            route_name, standard_route_names=STANDARD_ROUTE_NAMES
-        )
-
-    @staticmethod
-    def _validated_delegation_name(role_name: str) -> str:
-        return agent_provider_runtime.validated_delegation_name(
-            role_name, standard_delegation_names=STANDARD_DELEGATION_NAMES
-        )
+    _validated_reasoning_effort = staticmethod(
+        _agent_selection_facade_runtime._validated_reasoning_effort
+    )
+    _validated_route_name = staticmethod(_agent_selection_facade_runtime._validated_route_name)
+    _validated_delegation_name = staticmethod(
+        _agent_selection_facade_runtime._validated_delegation_name
+    )
 
     @staticmethod
     def _selection_override_payload(override: dict[str, Any]) -> dict[str, Any]:
@@ -205,47 +188,15 @@ class RuleBasedAgent(AgentProviderRuntimeMixin):
             override_source=SESSION_ROUTE_OVERRIDE_SOURCE,
         )
 
-    @staticmethod
-    def _config_with_session_block_overrides(
-        config: Any,
-        *,
-        block_key: str,
-        allowed_names: tuple[str, ...],
-        overrides: dict[str, dict[str, Any]],
-    ) -> Any:
-        return agent_runtime_helpers.config_with_session_block_overrides(
-            config,
-            block_key=block_key,
-            allowed_names=allowed_names,
-            overrides=overrides,
-            config_with_session_route_overrides_fn=_config_with_session_route_overrides,
-            config_with_session_delegation_overrides_fn=_config_with_session_delegation_overrides,
-            session_model_default_tokens=SESSION_MODEL_DEFAULT_TOKENS,
-        )
-
-    @staticmethod
-    def _config_with_session_route_overrides(
-        config: Any, overrides: dict[str, dict[str, Any]]
-    ) -> Any:
-        return agent_runtime_helpers.config_with_session_route_overrides(
-            config,
-            overrides,
-            standard_route_names=STANDARD_ROUTE_NAMES,
-            session_model_default_tokens=SESSION_MODEL_DEFAULT_TOKENS,
-            config_with_session_route_overrides_fn=_config_with_session_route_overrides,
-        )
-
-    @staticmethod
-    def _config_with_session_delegation_overrides(
-        config: Any, overrides: dict[str, dict[str, Any]]
-    ) -> Any:
-        return agent_runtime_helpers.config_with_session_delegation_overrides(
-            config,
-            overrides,
-            standard_delegation_names=STANDARD_DELEGATION_NAMES,
-            session_model_default_tokens=SESSION_MODEL_DEFAULT_TOKENS,
-            config_with_session_delegation_overrides_fn=_config_with_session_delegation_overrides,
-        )
+    _config_with_session_block_overrides = staticmethod(
+        _agent_selection_facade_runtime._config_with_session_block_overrides
+    )
+    _config_with_session_route_overrides = staticmethod(
+        _agent_selection_facade_runtime._config_with_session_route_overrides
+    )
+    _config_with_session_delegation_overrides = staticmethod(
+        _agent_selection_facade_runtime._config_with_session_delegation_overrides
+    )
 
     def _load_provider_catalog(self, **kwargs):
         return load_provider_catalog(**kwargs)
@@ -305,42 +256,10 @@ class RuleBasedAgent(AgentProviderRuntimeMixin):
             error_text, has_request_diagnostics=has_request_diagnostics
         )
 
-    @staticmethod
-    def _protocol_path_payload(
-        *,
-        kind: str,
-        source: str,
-        provider_used: bool,
-        parity_evaluable: bool,
-        reason: str,
-    ) -> dict[str, Any]:
-        return agent_runtime.protocol_path_payload(
-            kind=kind,
-            source=source,
-            provider_used=provider_used,
-            parity_evaluable=parity_evaluable,
-            reason=reason,
-        )
-
-    @classmethod
-    def _intent_with_protocol_path(
-        cls,
-        intent: AgentIntent,
-        *,
-        kind: str,
-        source: str,
-        provider_used: bool,
-        parity_evaluable: bool,
-        reason: str,
-    ) -> AgentIntent:
-        return agent_runtime.intent_with_protocol_path(
-            intent,
-            kind=kind,
-            source=source,
-            provider_used=provider_used,
-            parity_evaluable=parity_evaluable,
-            reason=reason,
-        )
+    _protocol_path_payload = staticmethod(_agent_selection_facade_runtime._protocol_path_payload)
+    _intent_with_protocol_path = classmethod(
+        _agent_selection_facade_runtime._intent_with_protocol_path
+    )
 
     @staticmethod
     def _set_env_value(name: str, value: str | None) -> None:

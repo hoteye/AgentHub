@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 try:
+    from cli.scripts import provider_two_turn_live_smoke_worker as worker_helpers
     from cli.scripts.script_runtime_helpers import (
         apply_provider_home_override_env,
         ensure_script_import_paths,
@@ -20,6 +21,7 @@ try:
         resolve_effective_script_provider_home_dir,
     )
 except ModuleNotFoundError:  # pragma: no cover - direct script path
+    import provider_two_turn_live_smoke_worker as worker_helpers  # type: ignore[no-redef]
     from script_runtime_helpers import (  # type: ignore[no-redef]
         apply_provider_home_override_env,
         ensure_script_import_paths,
@@ -92,80 +94,30 @@ def _token_for_case(case: ProviderCase, *, run_id: str) -> str:
 
 
 def _tool_name(item: Any) -> str:
-    value = getattr(item, "name", "")
-    if value:
-        return str(value)
-    payload = getattr(item, "payload", None)
-    if isinstance(payload, dict):
-        return str(payload.get("name") or payload.get("tool_name") or "")
-    return ""
+    return worker_helpers._tool_name(item)
 
 
 def _response_payload(*, prompt: str, response: Any) -> dict[str, Any]:
-    assistant_text = str(getattr(response, "assistant_text", "") or "")
-    status = dict(getattr(response, "status", {}) or {})
-    timings = dict(getattr(response, "timings", {}) or {})
-    diagnostics = dict(getattr(response, "protocol_diagnostics", {}) or {})
-    protocol_path = dict(diagnostics.get("protocol_path") or {})
-    tool_events = list(getattr(response, "tool_events", []) or [])
-    return {
-        "prompt": prompt,
-        "assistant_text": assistant_text,
-        "assistant_preview": assistant_text.replace("\n", " ")[:240],
-        "provider_runtime_state": status.get("provider_runtime_state"),
-        "provider_name": status.get("provider_name"),
-        "provider_model": status.get("provider_model"),
-        "provider_label": status.get("provider_label"),
-        "protocol_path_kind": protocol_path.get("kind"),
-        "provider_used": protocol_path.get("provider_used"),
-        "tool_event_count": len(tool_events),
-        "tool_names": [name for item in tool_events if (name := _tool_name(item))],
-        "initial_model_ms": timings.get("initial_model_ms"),
-        "total_ms": timings.get("total_ms"),
-        "planning_rounds": timings.get("planning_rounds"),
-    }
-
-
-def _fallback_detected(turn: dict[str, Any]) -> bool:
-    text = str(turn.get("assistant_text") or "")
-    return (
-        str(turn.get("protocol_path_kind") or "") == "provider_degraded_fallback"
-        or "当前 provider 调用失败" in text
-        or "provider 调用失败" in text
-        or text.startswith("无法继续：")
+    return worker_helpers._response_payload(
+        prompt=prompt,
+        response=response,
+        tool_name_fn=_tool_name,
     )
 
 
+def _fallback_detected(turn: dict[str, Any]) -> bool:
+    return worker_helpers._fallback_detected(turn)
+
+
 def evaluate_case_health(payload: dict[str, Any]) -> str:
-    if payload.get("timeout") or payload.get("parse_error") or payload.get("exception"):
-        return "error"
-    if payload.get("provider_runtime_state") != "ready":
-        return "error"
-    turns = list(payload.get("turns") or [])
-    if len(turns) != 2:
-        return "error"
-    if any(not str(turn.get("assistant_text") or "").strip() for turn in turns):
-        return "error"
-    if any(_fallback_detected(turn) for turn in turns):
-        return "error"
-    if any(turn.get("provider_used") is False for turn in turns):
-        return "error"
-    token = str(payload.get("token") or "").strip()
-    second_text = str(turns[1].get("assistant_text") or "")
-    if token and token not in second_text:
-        return "error"
-    if any(int(turn.get("tool_event_count") or 0) > 0 for turn in turns):
-        return "warning"
-    return "ok"
+    return worker_helpers.evaluate_case_health(
+        payload,
+        fallback_detected_fn=_fallback_detected,
+    )
 
 
 def _summary_for_results(results: list[dict[str, Any]]) -> dict[str, Any]:
-    return {
-        "cases": len(results),
-        "ok": sum(1 for item in results if item.get("health") == "ok"),
-        "warning": sum(1 for item in results if item.get("health") == "warning"),
-        "error": sum(1 for item in results if item.get("health") == "error"),
-    }
+    return worker_helpers._summary_for_results(results)
 
 
 def _common_worker_command(
@@ -192,72 +144,15 @@ def _common_worker_command(
 
 
 def _run_worker(args: argparse.Namespace) -> int:
-    from cli.agent_cli.runtime import AgentCliRuntime
-    from cli.agent_cli.runtime_policy import RuntimePolicy
-
-    case = ProviderCase(
-        provider=str(args.provider or "").strip(),
-        model=str(args.model or "").strip(),
+    return worker_helpers._run_worker(
+        args,
+        provider_case_factory=ProviderCase,
+        provider_home_report_fields_fn=_provider_home_report_fields,
+        first_prompt_template=FIRST_PROMPT_TEMPLATE,
+        second_prompt=SECOND_PROMPT,
+        response_payload_fn=_response_payload,
+        evaluate_case_health_fn=evaluate_case_health,
     )
-    if not case.provider or not case.model:
-        raise SystemExit("worker requires --provider and --model")
-
-    provider_home = normalize_optional_provider_home_override(args.provider_home)
-    previous_env = {
-        key: os.environ.get(key) for key in case.env_overrides(provider_home=provider_home)
-    }
-    try:
-        os.environ.update(case.env_overrides(provider_home=provider_home))
-        token = str(args.token or "").strip()
-        first_prompt = FIRST_PROMPT_TEMPLATE.format(token=token)
-        started = time.perf_counter()
-        payload: dict[str, Any] = {
-            "provider": case.provider,
-            "model": case.model,
-            "token": token,
-            **_provider_home_report_fields(provider_home),
-        }
-        runtime = AgentCliRuntime(
-            runtime_policy=RuntimePolicy.normalized(
-                approval_policy="never",
-                sandbox_mode="workspace-write",
-                web_search_mode="disabled",
-                network_access_enabled=False,
-            )
-        )
-        first_response = runtime.handle_prompt(first_prompt)
-        second_response = runtime.handle_prompt(SECOND_PROMPT)
-        provider_status = dict(runtime.agent.provider_status() or {})
-        payload.update(
-            {
-                "provider_runtime_state": provider_status.get("provider_runtime_state"),
-                "provider_name": provider_status.get("provider_name"),
-                "provider_model": provider_status.get("provider_model"),
-                "provider_label": provider_status.get("provider_label"),
-                "turns": [
-                    _response_payload(prompt=first_prompt, response=first_response),
-                    _response_payload(prompt=SECOND_PROMPT, response=second_response),
-                ],
-            }
-        )
-        payload["health"] = evaluate_case_health(payload)
-        payload["wall_ms"] = int((time.perf_counter() - started) * 1000)
-    except Exception as exc:
-        payload = {
-            "provider": case.provider,
-            "model": case.model,
-            "token": str(args.token or "").strip(),
-            "health": "error",
-            "exception": f"{type(exc).__name__}: {exc}",
-        }
-    finally:
-        for key, old_value in previous_env.items():
-            if old_value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = old_value
-    print(json.dumps(payload, ensure_ascii=False))
-    return 0
 
 
 def _decode_worker_payload(stdout_text: str) -> dict[str, Any]:

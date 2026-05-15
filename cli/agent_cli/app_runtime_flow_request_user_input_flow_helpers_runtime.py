@@ -58,6 +58,9 @@ def install_local_request_user_input_handler(app: Any) -> None:
     previous = getattr(app.runtime, "request_user_input_handler", None)
     app._request_user_input_previous_handler = previous
     tab_id = _active_tab_id(app)
+    if tab_id == "main":
+        app.runtime.request_user_input_handler = app._handle_request_user_input_from_runtime
+        return
     app.runtime.request_user_input_handler = (
         lambda payload, _tid=tab_id: app._handle_request_user_input_from_runtime_for_tab(
             _tid, payload

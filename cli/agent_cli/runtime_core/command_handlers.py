@@ -3,13 +3,17 @@ from __future__ import annotations
 from cli.agent_cli.models import (
     CommandExecutionResult,
     ToolEvent,
-    generic_tool_call_item_events,
 )
 from cli.agent_cli.runtime_core.background_task_commands import handle_background_task_command
 from cli.agent_cli.runtime_core.browser_commands import handle_browser_command
 from cli.agent_cli.runtime_core.command_handlers_approval_helpers_runtime import (
     handle_approval_command,
-    patch_approval_cached,
+)
+from cli.agent_cli.runtime_core.command_handlers_core_helpers_runtime import (
+    handle_apply_patch_command,
+    handle_expert_review_command,
+    handle_help_command,
+    handle_manual_compact_command,
 )
 from cli.agent_cli.runtime_core.command_handlers_structured_runtime import (
     approval_request_text as _approval_request_text,
@@ -52,7 +56,6 @@ from cli.agent_cli.runtime_core.command_handlers_structured_runtime import (
     text_only_result as _text_only_result,
 )
 from cli.agent_cli.runtime_core.command_usage import (
-    _apply_patch_usage_text,
     _command_usage_text,
 )
 from cli.agent_cli.runtime_core.init_commands import handle_init_command
@@ -69,7 +72,6 @@ from cli.agent_cli.runtime_core.tool_commands import (
     handle_tool_command,
 )
 from cli.agent_cli.runtime_core.update_commands import handle_update_command
-from cli.agent_cli.slash_commands import slash_command_help_text
 from cli.agent_cli.slash_parser import SlashInvocation
 
 
@@ -89,51 +91,11 @@ def handle_known_command(
     slash_invocation: SlashInvocation | None = None,
 ) -> tuple[str, list[ToolEvent]] | CommandExecutionResult | None:
     if name == "help":
-        help_tokens = [
-            str(token).strip().lower()
-            for token in list(getattr(slash_invocation, "positionals", ()) or ())
-            if str(token).strip()
-        ]
-        if not help_tokens and str(arg_text or "").strip():
-            help_tokens = [
-                part.strip().lower() for part in str(arg_text or "").split() if part.strip()
-            ]
-        include_advanced = any(
-            token in {"all", "advanced", "verbose", "--all", "-a"} for token in help_tokens
+        return handle_help_command(
+            runtime,
+            arg_text=arg_text,
+            slash_invocation=slash_invocation,
         )
-        text = slash_command_help_text(
-            plugin_manager=getattr(getattr(runtime, "tools", None), "_plugin_manager", None),
-            include_advanced=include_advanced,
-            locale=getattr(runtime, "presentation_locale", None),
-        )
-        from cli.agent_cli.app_bindings_runtime import APP_BINDINGS
-
-        _ACTION_LABELS = {
-            "ctrl_c": "Quit",
-            "focused_undo_or_noop": "Undo",
-            "clear_logs": "Clear screen",
-            "toggle_transcript": "Toggle transcript mode",
-            "submit_prompt": "Send prompt",
-            "refresh_state": "Show provider status",
-            "show_tools": "Show tools",
-            "toggle_latest_web_item": "Toggle web details",
-            "paste_prompt": "Paste from clipboard",
-            "new_tab": "New tab",
-            "fork_tab": "Fork current tab",
-            "close_tab": "Close current tab",
-            "next_tab": "Switch to next tab",
-            "prev_tab": "Switch to previous tab",
-        }
-        shortcuts = []
-        for b in APP_BINDINGS:
-            key = b[0] if isinstance(b, tuple) else getattr(b, "key", "")
-            action = b[1] if isinstance(b, tuple) and len(b) > 1 else getattr(b, "action", "")
-            label = _ACTION_LABELS.get(action, action)
-            if key:
-                shortcuts.append(f"  {key} - {label}")
-        if shortcuts:
-            text += "\n\nkeyboard shortcuts:\n" + "\n".join(shortcuts)
-        return (text, [])
     if name == "cd":
         return handle_cd_command(runtime, name=name, arg_text=arg_text)
     if name in {"runtime_status", "status"}:
@@ -243,51 +205,11 @@ def handle_known_command(
         if callable(_interrupt_fn):
             return _interrupt_fn()
     if name == "compact":
-        instructions = _decode_raw_text_arg(arg_text)
-        result = runtime._compact_history(
-            reason="manual_compact",
-            trigger="manual",
-            instructions=instructions,
-        )
-        if not bool(result.get("ok")):
-            event = ToolEvent(
-                name="compact",
-                ok=True,
-                summary="Not enough provider conversation history to compact.",
-                payload={
-                    "ok": True,
-                    "reason": result.get("reason") or "not_enough_history",
-                    "trigger": "manual",
-                    "trigger_item_count": result.get("trigger_item_count"),
-                    "replacement_history_count": 0,
-                },
-            )
-            return _single_event_result(
-                "Not enough provider conversation history to compact.",
-                event,
-                arguments={"instructions": instructions},
-            )
-        event_payload = {
-            "ok": True,
-            "reason": result.get("reason") or "manual_compact",
-            "trigger": "manual",
-            "trigger_item_count": result.get("trigger_item_count"),
-            "replacement_history_count": result.get("replacement_history_count"),
-        }
-        if instructions:
-            event_payload["instructions"] = instructions
-        event = ToolEvent(
-            name="compact",
-            ok=True,
-            summary="Context compacted.",
-            payload=event_payload,
-        )
-        return _single_event_result(
-            "Context compacted.\n"
-            f"replacement_history_count={result.get('replacement_history_count') or 0}\n"
-            "reason=manual_compact",
-            event,
-            arguments={"instructions": instructions},
+        return handle_manual_compact_command(
+            runtime,
+            arg_text=arg_text,
+            decode_raw_text_arg=_decode_raw_text_arg,
+            single_event_result=_single_event_result,
         )
     provider_result = handle_provider_command(
         runtime,
@@ -299,35 +221,14 @@ def handle_known_command(
     if provider_result is not None:
         return provider_result
     if name == "expert_review":
-        from cli.agent_cli.runtime_services.expert_review_execution_runtime import (
-            parse_expert_review_command_payload,
-            run_expert_review,
+        return handle_expert_review_command(
+            runtime,
+            arg_text=arg_text,
+            parse_json_tool_arg=_parse_json_tool_arg,
+            text_only_result=_text_only_result,
+            error_result=_error_result,
+            error_event=_error_event,
         )
-
-        if not arg_text:
-            return _text_only_result(_command_usage_text("expert_review"))
-        try:
-            payload = parse_expert_review_command_payload(_parse_json_tool_arg(arg_text))
-        except ValueError as exc:
-            return _error_result(
-                _error_event(
-                    "expert_review",
-                    "expert_review parse failed",
-                    error=str(exc),
-                ),
-            )
-        try:
-            return run_expert_review(runtime, **payload)
-        except Exception as exc:
-            return _error_result(
-                _error_event(
-                    "expert_review",
-                    "expert_review failed",
-                    error=str(exc),
-                ),
-                arguments=payload,
-                tool_name="expert_review",
-            )
     tool_command_result = handle_tool_command(
         runtime,
         name=name,
@@ -377,68 +278,16 @@ def handle_known_command(
     if shell_result is not None:
         return shell_result
     if name == "apply_patch":
-        from cli.agent_cli.runtime_action_policy_runtime import evaluate_apply_patch_action_policy
-
-        patch_text = _decode_raw_text_arg(arg_text)
-        if not patch_text:
-            return _text_only_result(_apply_patch_usage_text())
-        policy_state = evaluate_apply_patch_action_policy(
+        return handle_apply_patch_command(
             runtime,
-            patch_text=patch_text,
+            arg_text=arg_text,
             workspace_root=_file_workspace_root(runtime),
-        )
-        policy_payload = dict(policy_state["payload"] or {})
-        requirement_name = str(
-            (policy_state["action_policy_payload"] or {}).get("requirement") or ""
-        ).strip()
-        if requirement_name == "forbidden":
-            error_text = str(policy_payload.get("reason_text") or "patch blocked")
-            if str(policy_payload.get("reason_code") or "") == "apply_patch_sandbox_read_only":
-                error_text = "runtime sandbox is read-only"
-            event_payload = dict(policy_payload)
-            event_payload.pop("error", None)
-            return _single_event_result(
-                "Patch blocked.",
-                _error_event(
-                    "apply_patch",
-                    "patch blocked",
-                    error=error_text,
-                    **event_payload,
-                ),
-                arguments={"patch": patch_text},
-            )
-        if requirement_name == "needs_approval":
-            if patch_approval_cached(runtime, patch_text=patch_text):
-                policy_payload.update(
-                    {
-                        "approval_cache_hit": True,
-                        "policy_decision": "allowed",
-                        "policy_decision_reason": "approval_cached",
-                    }
-                )
-            else:
-                event = runtime.request_patch_approval(patch_text)
-                event.payload.update(policy_payload)
-                return CommandExecutionResult(
-                    assistant_text=_approval_request_text("Request patch approval.", event),
-                    tool_events=[event],
-                    item_events=generic_tool_call_item_events(
-                        tool_name="patch_approval_requested",
-                        arguments={"patch": patch_text},
-                        ok=bool(event.ok),
-                        summary=str(event.summary or ""),
-                        structured_content=dict(event.payload or {}),
-                    ),
-                )
-        structured = _call_structured(runtime.tools, "apply_patch_result", patch_text)
-        if structured is not None:
-            if structured.tool_events:
-                structured.tool_events[0].payload.update(policy_payload)
-            return structured
-        event = runtime.tools.apply_patch(patch_text)
-        event.payload.update(policy_payload)
-        return _single_event_result(
-            "Apply workspace patch.", event, arguments={"patch": patch_text}
+            decode_raw_text_arg=_decode_raw_text_arg,
+            approval_request_text=_approval_request_text,
+            call_structured=_call_structured,
+            single_event_result=_single_event_result,
+            text_only_result=_text_only_result,
+            error_event=_error_event,
         )
     approval_result = handle_approval_command(
         runtime,

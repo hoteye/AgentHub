@@ -156,6 +156,15 @@ def build_app_css(theme: Any) -> str:
         text-align: center;
     }}
 
+    #split_toggle_btn {{
+        width: 2;
+        background: {theme.info_surface_bg};
+        color: {theme.text_dim};
+        text-align: center;
+        content-align: center middle;
+        padding: 0;
+    }}
+
     #work_area {{
         width: 1fr;
         height: 1fr;

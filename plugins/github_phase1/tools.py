@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
-import os
-from pathlib import Path
-import tomllib
 import uuid
-from typing import Any, Optional
+from pathlib import Path
+from typing import Any
 
 from cli.agent_cli.models import ToolEvent
 from shared.integrations import (
@@ -18,51 +15,61 @@ from shared.integrations import (
 )
 from workers.actions import ActionError, ControlledActionWorker
 
+from .tools_approval_runtime import (
+    _execute_request as _runtime_execute_request,
+)
+from .tools_approval_runtime import (
+    _load_phase1_config as _runtime_load_phase1_config,
+)
+from .tools_approval_runtime import (
+    _request_approval as _runtime_request_approval,
+)
+from .tools_approval_runtime import (
+    _resolve_token_env as _runtime_resolve_token_env,
+)
+from .tools_approval_runtime import (
+    _temporary_env as _runtime_temporary_env,
+)
+from .tools_approval_runtime import (
+    _tool_event as _runtime_tool_event,
+)
+from .tools_approval_runtime import (
+    _workflow_dispatch_allowed as _runtime_workflow_dispatch_allowed,
+)
 
 _EPHEMERAL_GITHUB_TOKEN_ENV = "AGENTHUB_GITHUB_TOKEN_EPHEMERAL"
 _PHASE1_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "github_phase1.toml"
 
 
 def _tool_event(name: str, *, ok: bool, summary: str, payload: dict[str, Any]) -> ToolEvent:
-    return ToolEvent(name=name, ok=bool(ok), summary=summary, payload=payload)
+    return _runtime_tool_event(name, ok=ok, summary=summary, payload=payload)
 
 
-def _resolve_token_env(token: Optional[str], token_env: str, *, allow_ephemeral: bool) -> tuple[str, str | None]:
-    explicit = str(token or "").strip()
-    env_name = str(token_env or "GITHUB_TOKEN").strip() or "GITHUB_TOKEN"
-    if explicit:
-        if not allow_ephemeral:
-            raise ActionError(f"explicit GitHub token is not allowed here; set {env_name} in the environment instead")
-        return _EPHEMERAL_GITHUB_TOKEN_ENV, explicit
-    env_value = str(os.environ.get(env_name) or "").strip()
-    if env_value:
-        return env_name, None
-    raise ActionError(f"GitHub token not found; set {env_name} or pass token explicitly")
+def _resolve_token_env(
+    token: str | None, token_env: str, *, allow_ephemeral: bool
+) -> tuple[str, str | None]:
+    return _runtime_resolve_token_env(
+        token,
+        token_env,
+        allow_ephemeral=allow_ephemeral,
+        ephemeral_token_env=_EPHEMERAL_GITHUB_TOKEN_ENV,
+    )
 
 
-@contextmanager
 def _temporary_env(name: str, value: str | None):
-    if value is None:
-        yield
-        return
-    previous = os.environ.get(name)
-    os.environ[name] = value
-    try:
-        yield
-    finally:
-        if previous is None:
-            os.environ.pop(name, None)
-        else:
-            os.environ[name] = previous
+    return _runtime_temporary_env(name, value)
 
 
-def _execute_request(name: str, request: dict[str, Any], *, http_client: HttpClient | None = None) -> ToolEvent:
-    worker = ControlledActionWorker(http_client=http_client)
-    try:
-        result = worker.execute(request)
-    except ActionError as exc:
-        return _tool_event(name, ok=False, summary=str(exc), payload={"ok": False, "error": str(exc), "request": request})
-    return _tool_event(name, ok=result.ok, summary=result.summary, payload=result.to_dict())
+def _execute_request(
+    name: str, request: dict[str, Any], *, http_client: HttpClient | None = None
+) -> ToolEvent:
+    return _runtime_execute_request(
+        name,
+        request,
+        http_client=http_client,
+        worker_cls=ControlledActionWorker,
+        tool_event_factory=_tool_event,
+    )
 
 
 def _request_approval(
@@ -78,76 +85,31 @@ def _request_approval(
     workflow_run_id: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> ToolEvent:
-    trace_id = str(request.get("correlation_id") or f"trace_{uuid.uuid4().hex[:12]}")
-    result = runtime.request_gateway_action(
+    return _runtime_request_approval(
+        name,
+        runtime=runtime,
+        request=request,
         action_type=action_type,
-        connector_key="github_webhook",
-        plugin_name="github_phase1",
-        request_payload=request,
         requested_by=requested_by,
-        trace_id=trace_id,
+        summary=summary,
+        reason=reason,
         event_id=event_id,
         workflow_run_id=workflow_run_id,
-        approval_required=True,
-        approval_summary=summary,
-        approval_reason=reason,
-        metadata={"provider": "github", "phase": "phase1", **dict(metadata or {})},
-    )
-    approval_ticket = result["approval_ticket"]
-    return _tool_event(
-        name,
-        ok=True,
-        summary=f"approval requested: {approval_ticket.approval_id}",
-        payload={
-            "ok": True,
-            "mode": "approval_required",
-            "request": request,
-            "action_request": result["action_request"].to_dict(),
-            "approval_ticket": approval_ticket.to_dict() if approval_ticket is not None else None,
-            "audit_records": [item.to_dict() for item in result["audit_records"]],
-        },
+        metadata=metadata,
+        tool_event_factory=_tool_event,
     )
 
 
 def _load_phase1_config() -> dict[str, Any]:
-    if not _PHASE1_CONFIG_PATH.exists():
-        return {}
-    try:
-        return tomllib.loads(_PHASE1_CONFIG_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    return _runtime_load_phase1_config(_PHASE1_CONFIG_PATH)
 
 
-def _workflow_dispatch_allowed(owner: str, repo: str, workflow_id: str) -> tuple[bool, dict[str, Any]]:
-    config = _load_phase1_config()
-    block = config.get("workflow_dispatch")
-    if not isinstance(block, dict):
-        return False, {"reason": "missing_workflow_dispatch_config"}
-    default_allowlist = [
-        str(item).strip()
-        for item in block.get("default_allowlisted_workflow_ids") or []
-        if str(item).strip()
-    ]
-    repo_allowlist_map = block.get("repo_allowlisted_workflow_ids")
-    repo_allowlist: list[str] = []
-    repo_key = f"{owner}/{repo}"
-    if isinstance(repo_allowlist_map, dict):
-        repo_allowlist = [
-            str(item).strip()
-            for item in (repo_allowlist_map.get(repo_key) or [])
-            if str(item).strip()
-        ]
-    allowlist = repo_allowlist or default_allowlist
-    if not allowlist:
-        return False, {"reason": "workflow_allowlist_empty", "repo": repo_key}
-    normalized = str(workflow_id or "").strip()
-    allowed = normalized in allowlist
-    return allowed, {
-        "reason": "workflow_not_allowlisted" if not allowed else "workflow_allowlisted",
-        "repo": repo_key,
-        "workflow_id": normalized,
-        "allowlist": allowlist,
-    }
+def _workflow_dispatch_allowed(
+    owner: str, repo: str, workflow_id: str
+) -> tuple[bool, dict[str, Any]]:
+    return _runtime_workflow_dispatch_allowed(
+        owner, repo, workflow_id, config=_load_phase1_config()
+    )
 
 
 def github_issue_create(
@@ -175,7 +137,9 @@ def github_issue_create(
     )
     if runtime is not None:
         if ephemeral_token is not None:
-            raise ActionError("explicit GitHub token is not allowed for approval-gated requests; use token_env")
+            raise ActionError(
+                "explicit GitHub token is not allowed for approval-gated requests; use token_env"
+            )
         return _request_approval(
             "github_issue_create",
             runtime=runtime,
@@ -217,7 +181,9 @@ def github_issue_comment(
     )
     if runtime is not None:
         if ephemeral_token is not None:
-            raise ActionError("explicit GitHub token is not allowed for approval-gated requests; use token_env")
+            raise ActionError(
+                "explicit GitHub token is not allowed for approval-gated requests; use token_env"
+            )
         return _request_approval(
             "github_issue_comment",
             runtime=runtime,
@@ -259,7 +225,9 @@ def github_issue_add_labels(
     )
     if runtime is not None:
         if ephemeral_token is not None:
-            raise ActionError("explicit GitHub token is not allowed for approval-gated requests; use token_env")
+            raise ActionError(
+                "explicit GitHub token is not allowed for approval-gated requests; use token_env"
+            )
         return _request_approval(
             "github_issue_add_labels",
             runtime=runtime,
@@ -296,7 +264,9 @@ def github_issue_close(
     )
     if runtime is not None:
         if ephemeral_token is not None:
-            raise ActionError("explicit GitHub token is not allowed for approval-gated requests; use token_env")
+            raise ActionError(
+                "explicit GitHub token is not allowed for approval-gated requests; use token_env"
+            )
         return _request_approval(
             "github_issue_close",
             runtime=runtime,
@@ -380,7 +350,9 @@ def github_workflow_dispatch(
     )
     if runtime is not None:
         if ephemeral_token is not None:
-            raise ActionError("explicit GitHub token is not allowed for approval-gated requests; use token_env")
+            raise ActionError(
+                "explicit GitHub token is not allowed for approval-gated requests; use token_env"
+            )
         return _request_approval(
             "github_workflow_dispatch",
             runtime=runtime,

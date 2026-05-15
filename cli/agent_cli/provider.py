@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from cli.agent_cli import provider_catalog_runtime as _provider_catalog_runtime
+from cli.agent_cli import provider_facade_paths_runtime as _provider_facade_paths_runtime
 from cli.agent_cli import provider_helpers_runtime as _provider_helpers_runtime
-from cli.agent_cli import provider_paths_helpers_runtime as _provider_paths_helpers_runtime
 from cli.agent_cli.environment_context import environment_context_marker_offset
 from cli.agent_cli.host.plugin_manager import PluginManager
 from cli.agent_cli.host_platform import HostPlatform
@@ -19,7 +19,9 @@ from cli.agent_cli.providers.config.catalog import (
     ModelCatalogEntry,
     ProviderCatalog,
     ProviderConfig,
-    ProviderPathResolution,
+)
+from cli.agent_cli.providers.config.catalog import (
+    ProviderPathResolution as ProviderPathResolution,
 )
 from cli.agent_cli.providers.config.catalog import (
     build_provider_catalog as _build_provider_catalog_impl,
@@ -155,6 +157,74 @@ _looks_like_policy_context = _looks_like_policy_context_impl
 BasePlanner = _BasePlannerImpl
 
 
+def _facade_path_deps() -> _provider_facade_paths_runtime.ProviderFacadePathRuntimeDeps:
+    return _provider_facade_paths_runtime.ProviderFacadePathRuntimeDeps(
+        env_mapping=os.environ,
+        app_dir=APP_DIR,
+        local_config_dir_candidates=tuple(LOCAL_CONFIG_DIR_CANDIDATES),
+        project_local_data_dir_candidates=tuple(PROJECT_LOCAL_DATA_DIR_CANDIDATES),
+        agenthub_provider_home_env=AGENTHUB_PROVIDER_HOME_ENV,
+        agent_cli_config_toml=AGENT_CLI_CONFIG_TOML,
+        agent_cli_auth_json=AGENT_CLI_AUTH_JSON,
+        legacy_compat_config_toml=LEGACY_COMPAT_CONFIG_TOML,
+        legacy_compat_auth_json=LEGACY_COMPAT_AUTH_JSON,
+        claude_settings_json=CLAUDE_SETTINGS_JSON,
+        claude_config_json=CLAUDE_CONFIG_JSON,
+        claude_state_json=CLAUDE_STATE_JSON,
+        user_model_selection_keys=_USER_MODEL_SELECTION_KEYS,
+        save_user_model_selection_fn=_provider_catalog_runtime.save_user_model_selection,
+        read_user_model_selection_toml_impl_fn=_provider_helpers_runtime.read_user_model_selection_toml,
+        read_toml_fn=_read_toml,
+        read_json_fn=_read_json,
+        runtime_project_root_fn=runtime_project_root,
+        project_root_markers_fn=project_root_markers,
+        find_project_root_fn=find_project_root,
+        project_provider_layout_impl_fn=project_provider_layout,
+        project_provider_layout_fn=_project_provider_layout,
+        ensure_project_provider_bootstrap_impl_fn=ensure_project_provider_bootstrap,
+        ensure_project_provider_bootstrap_fn=_ensure_project_provider_bootstrap,
+        provider_discovery_feature_settings_impl_fn=provider_discovery_feature_config_runtime.provider_discovery_feature_settings,
+        provider_discovery_feature_settings_fn=_provider_discovery_feature_settings,
+        provider_discovery_strict_isolation_enabled_fn=_provider_discovery_strict_isolation_enabled,
+        workspace_trust_level_fn=workspace_trust_level,
+        resolve_provider_paths_impl_fn=_resolve_provider_paths_impl,
+        load_provider_inputs_fn=_provider_catalog_runtime.load_provider_inputs,
+        read_user_model_selection_toml_fn=_read_user_model_selection_toml,
+        iter_project_roots_fn=_iter_project_roots,
+        find_project_provider_file_fn=_find_project_provider_file,
+        project_provider_search_excluded_dirs_fn=_project_provider_search_excluded_dirs,
+        explicit_provider_home_paths_fn=_explicit_provider_home_paths,
+        related_provider_roots_fn=_related_provider_roots,
+        home_provider_paths_fn=_home_provider_paths,
+        resolve_provider_paths_fn=resolve_provider_paths,
+        discover_provider_project_local_paths_fn=_discover_provider_project_local_paths,
+        private_config_paths_fn=_private_provider_config_paths,
+        private_auth_paths_fn=_private_provider_auth_paths,
+    )
+
+
+_facade_path_runtime = _provider_facade_paths_runtime.bind_path_runtime(_facade_path_deps)
+save_user_model_selection = _facade_path_runtime.save_user_model_selection
+_read_user_model_selection_toml = _facade_path_runtime.read_user_model_selection_toml
+_iter_project_roots = _facade_path_runtime.iter_project_roots
+_find_project_provider_file = _facade_path_runtime.find_project_provider_file
+_project_provider_layout = _facade_path_runtime.project_provider_layout
+_related_provider_roots = _facade_path_runtime.related_provider_roots
+_discover_provider_project_local_paths = _facade_path_runtime.discover_provider_project_local_paths
+_project_provider_search_excluded_dirs = _facade_path_runtime.project_provider_search_excluded_dirs
+_ensure_project_provider_bootstrap = _facade_path_runtime.ensure_project_provider_bootstrap
+_explicit_provider_home_paths = _facade_path_runtime.explicit_provider_home_paths
+_provider_discovery_feature_settings = _facade_path_runtime.provider_discovery_feature_settings
+_provider_discovery_strict_isolation_enabled = (
+    _facade_path_runtime.provider_discovery_strict_isolation_enabled
+)
+_home_provider_paths = _facade_path_runtime.home_provider_paths
+_private_provider_auth_paths = _facade_path_runtime.private_provider_auth_paths
+_private_provider_config_paths = _facade_path_runtime.private_provider_config_paths
+_project_claude_home_dir = _facade_path_runtime.project_claude_home_dir
+resolve_provider_paths = _facade_path_runtime.resolve_provider_paths
+
+
 def build_planner(
     config: ProviderConfig,
     *,
@@ -167,186 +237,6 @@ def build_planner(
         host_platform=host_platform,
         cwd=cwd,
         plugin_manager_factory=plugin_manager_factory,
-    )
-
-
-def save_user_model_selection(
-    *,
-    provider_name: str | None = None,
-    model: str | None = None,
-    reasoning_effort: str | None = None,
-) -> Path:
-    return _provider_catalog_runtime.save_user_model_selection(
-        path=AGENT_CLI_CONFIG_TOML,
-        provider_name=provider_name,
-        model=model,
-        reasoning_effort=reasoning_effort,
-    )
-
-
-def _read_user_model_selection_toml() -> dict[str, Any]:
-    config_paths = [AGENT_CLI_CONFIG_TOML]
-    if not str(os.environ.get("AGENT_CLI_HOME") or "").strip():
-        config_paths.append(LEGACY_COMPAT_CONFIG_TOML)
-    return _provider_helpers_runtime.read_user_model_selection_toml(
-        config_paths=tuple(config_paths),
-        read_toml_fn=_read_toml,
-        selection_keys=_USER_MODEL_SELECTION_KEYS,
-    )
-
-
-def _iter_project_roots(*, cwd: str | Path | None = None) -> list[Path]:
-    return _provider_paths_helpers_runtime.iter_project_roots(
-        cwd=cwd,
-        app_dir=APP_DIR,
-        runtime_project_root_fn=runtime_project_root,
-        project_root_markers_fn=project_root_markers,
-        find_project_root_fn=find_project_root,
-    )
-
-
-def _find_project_provider_file(filename: str, *, cwd: str | Path | None = None) -> Path | None:
-    return _provider_paths_helpers_runtime.find_project_provider_file(
-        filename,
-        cwd=cwd,
-        iter_project_roots_fn=_iter_project_roots,
-        project_provider_search_excluded_dirs_fn=_project_provider_search_excluded_dirs,
-        local_config_dir_candidates=LOCAL_CONFIG_DIR_CANDIDATES,
-    )
-
-
-def _project_provider_layout():
-    return project_provider_layout(cli_root=APP_DIR.parent)
-
-
-def _related_provider_roots(*, cwd: str | Path) -> list[Path]:
-    return _iter_project_roots(cwd=cwd)
-
-
-def _discover_provider_project_local_paths(
-    filename: str,
-    *,
-    cwd: str | Path,
-    home_config_paths: list[Path] | None = None,
-) -> list[Path]:
-    return _provider_paths_helpers_runtime.discover_provider_project_local_paths(
-        filename,
-        cwd=cwd,
-        home_config_paths=home_config_paths,
-        related_provider_roots_fn=_related_provider_roots,
-        workspace_trust_level_fn=workspace_trust_level,
-        project_local_data_dir_candidates=PROJECT_LOCAL_DATA_DIR_CANDIDATES,
-        project_provider_search_excluded_dirs_fn=_project_provider_search_excluded_dirs,
-    )
-
-
-def _project_provider_search_excluded_dirs() -> set[Path]:
-    return _provider_paths_helpers_runtime.project_provider_search_excluded_dirs(
-        env_mapping=os.environ,
-        project_provider_layout_fn=_project_provider_layout,
-        agent_cli_config_toml=AGENT_CLI_CONFIG_TOML,
-        agent_cli_auth_json=AGENT_CLI_AUTH_JSON,
-        legacy_compat_config_toml=LEGACY_COMPAT_CONFIG_TOML,
-        legacy_compat_auth_json=LEGACY_COMPAT_AUTH_JSON,
-        explicit_provider_home_paths_fn=_explicit_provider_home_paths,
-    )
-
-
-def _ensure_project_provider_bootstrap() -> None:
-    _provider_paths_helpers_runtime.ensure_project_provider_bootstrap(
-        project_provider_layout_fn=_project_provider_layout,
-        ensure_project_provider_bootstrap_fn=ensure_project_provider_bootstrap,
-        agent_cli_config_toml=AGENT_CLI_CONFIG_TOML,
-        agent_cli_auth_json=AGENT_CLI_AUTH_JSON,
-        legacy_compat_config_toml=LEGACY_COMPAT_CONFIG_TOML,
-        legacy_compat_auth_json=LEGACY_COMPAT_AUTH_JSON,
-        claude_settings_json=CLAUDE_SETTINGS_JSON,
-        claude_config_json=CLAUDE_CONFIG_JSON,
-        claude_state_json=CLAUDE_STATE_JSON,
-    )
-
-
-def _explicit_provider_home_paths() -> tuple[Path, Path] | None:
-    return _provider_paths_helpers_runtime.explicit_provider_home_paths(
-        env_mapping=os.environ,
-        project_provider_layout_fn=_project_provider_layout,
-    )
-
-
-def _provider_discovery_feature_settings() -> dict[str, Any]:
-    return _provider_paths_helpers_runtime.provider_discovery_feature_settings(
-        env_mapping=os.environ,
-        agent_cli_config_toml=AGENT_CLI_CONFIG_TOML,
-        legacy_compat_config_toml=LEGACY_COMPAT_CONFIG_TOML,
-        explicit_provider_home_paths_fn=_explicit_provider_home_paths,
-        provider_discovery_feature_settings_fn=provider_discovery_feature_config_runtime.provider_discovery_feature_settings,
-        read_toml_fn=_read_toml,
-    )
-
-
-def _provider_discovery_strict_isolation_enabled() -> bool:
-    return bool(_provider_discovery_feature_settings().get("strict_isolation"))
-
-
-def _home_provider_paths() -> tuple[Path, Path, bool]:
-    return _provider_paths_helpers_runtime.home_provider_paths(
-        env_mapping=os.environ,
-        provider_discovery_strict_isolation_enabled_fn=_provider_discovery_strict_isolation_enabled,
-        explicit_provider_home_paths_fn=_explicit_provider_home_paths,
-        ensure_project_provider_bootstrap_fn=_ensure_project_provider_bootstrap,
-        project_provider_layout_fn=_project_provider_layout,
-        agent_cli_config_toml=AGENT_CLI_CONFIG_TOML,
-        agent_cli_auth_json=AGENT_CLI_AUTH_JSON,
-        legacy_compat_config_toml=LEGACY_COMPAT_CONFIG_TOML,
-        legacy_compat_auth_json=LEGACY_COMPAT_AUTH_JSON,
-    )
-
-
-def _private_provider_auth_paths() -> list[Path]:
-    paths: list[Path] = []
-    if not str(os.environ.get("AGENT_CLI_HOME") or "").strip():
-        paths.append(LEGACY_COMPAT_AUTH_JSON)
-    paths.append(AGENT_CLI_AUTH_JSON)
-    unique: list[Path] = []
-    for path in paths:
-        if path not in unique:
-            unique.append(path)
-    return unique
-
-
-def _private_provider_config_paths() -> list[Path]:
-    paths: list[Path] = []
-    if not str(os.environ.get("AGENT_CLI_HOME") or "").strip():
-        paths.append(LEGACY_COMPAT_CONFIG_TOML)
-    paths.append(AGENT_CLI_CONFIG_TOML)
-    unique: list[Path] = []
-    for path in paths:
-        if path not in unique:
-            unique.append(path)
-    return unique
-
-
-def _project_claude_home_dir() -> Path | None:
-    return _provider_paths_helpers_runtime.project_claude_home_dir(
-        project_provider_layout_fn=_project_provider_layout,
-    )
-
-
-def resolve_provider_paths(
-    *,
-    cwd: str | Path | None = None,
-    strict_isolation: bool | None = None,
-) -> ProviderPathResolution:
-    return _provider_paths_helpers_runtime.resolve_provider_paths(
-        cwd=cwd,
-        strict_isolation=strict_isolation,
-        env_mapping=os.environ,
-        provider_discovery_strict_isolation_enabled_fn=_provider_discovery_strict_isolation_enabled,
-        home_provider_paths_fn=_home_provider_paths,
-        find_project_provider_file_fn=_find_project_provider_file,
-        resolve_provider_paths_impl_fn=_resolve_provider_paths_impl,
-        legacy_compat_config_toml=LEGACY_COMPAT_CONFIG_TOML,
-        legacy_compat_auth_json=LEGACY_COMPAT_AUTH_JSON,
     )
 
 
@@ -370,32 +260,7 @@ def _find_model_entry(
 _default_model_entry = _default_model_entry_impl
 
 
-def _load_provider_inputs(
-    *,
-    cwd: str | Path | None = None,
-    strict_isolation: bool | None = None,
-) -> tuple[ProviderPathResolution, dict[str, Any], dict[str, Any]]:
-    resolved_strict_isolation = (
-        _provider_discovery_strict_isolation_enabled()
-        if strict_isolation is None
-        else bool(strict_isolation)
-    )
-    explicit_runtime_home = bool(
-        str(os.environ.get(AGENTHUB_PROVIDER_HOME_ENV) or "").strip()
-        or str(os.environ.get("AGENT_CLI_HOME") or "").strip()
-    )
-    return _provider_catalog_runtime.load_provider_inputs(
-        cwd=cwd,
-        resolve_provider_paths_fn=resolve_provider_paths,
-        home_provider_paths_fn=_home_provider_paths,
-        discover_provider_project_local_paths_fn=_discover_provider_project_local_paths,
-        read_toml_fn=_read_toml,
-        read_json_fn=_read_json,
-        read_user_model_selection_toml_fn=_read_user_model_selection_toml,
-        private_config_paths_fn=_private_provider_config_paths,
-        private_auth_paths_fn=_private_provider_auth_paths,
-        strict_isolation=resolved_strict_isolation or explicit_runtime_home,
-    )
+_load_provider_inputs = _facade_path_runtime.load_provider_inputs
 
 
 def load_provider_catalog(*, cwd: str | Path | None = None) -> ProviderCatalog:

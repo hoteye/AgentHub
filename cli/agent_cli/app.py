@@ -15,10 +15,13 @@ from cli.agent_cli import (
     app_event_helpers,
     app_preview_actions_runtime,
     app_projection_helpers_runtime,
+    app_property_proxy_runtime,
     app_pure_helpers_runtime,
     app_runtime_support_runtime,
     app_shutdown_runtime,
-    app_tab_actions_runtime,
+)
+from cli.agent_cli import (
+    app_tab_actions_runtime as app_tab_actions_runtime,
 )
 from cli.agent_cli.app_runtime_flow import (
     AppRuntimeFlowMixin,
@@ -26,6 +29,7 @@ from cli.agent_cli.app_runtime_flow import (
 from cli.agent_cli.app_runtime_flow import (
     _PendingRequestUserInput as _PendingRequestUserInputRuntime,
 )
+from cli.agent_cli.app_tab_delegation_runtime import AppTabDelegationRuntimeMixin
 from cli.agent_cli.startup_debug import startup_timer
 from cli.agent_cli.ui import (
     PromptComposer,
@@ -62,6 +66,7 @@ class AgentCliApp(
     LiveTurnControllerMixin,
     SlashControllerMixin,
     AppTranscriptCoordinationMixin,
+    AppTabDelegationRuntimeMixin,
     App,
 ):
     AUTO_FOCUS = "#prompt_composer"
@@ -112,84 +117,35 @@ class AgentCliApp(
 
     @property
     def runtime(self) -> AgentCliRuntime:
-        mgr = self._tab_manager
-        if mgr is not None:
-            return mgr.active_session.runtime
-        return self._direct_runtime
+        return app_property_proxy_runtime.get_runtime(self)
 
     @runtime.setter
     def runtime(self, value: AgentCliRuntime) -> None:
-        mgr = self._tab_manager
-        if mgr is not None:
-            mgr.active_session.runtime = value
-            binder = getattr(mgr, "_bind_thread_store_update_active_getter", None)
-            if callable(binder):
-                binder(mgr.active_tab_id, value)
-            backend_binder = getattr(mgr, "_bind_visible_child_tab_backend", None)
-            if callable(backend_binder):
-                backend_binder(mgr.active_tab_id, value)
-        self._direct_runtime = value
+        app_property_proxy_runtime.set_runtime(self, value)
 
     @property
     def status_data(self) -> dict:
-        override = getattr(self, "_status_data_session_override", None)
-        if override is not None:
-            data = getattr(override, "status_data", None)
-            if not isinstance(data, dict):
-                override.status_data = {}
-            return override.status_data
-        mgr = self._tab_manager
-        if mgr is not None:
-            session = mgr.active_session
-            data = getattr(session, "status_data", None)
-            if not isinstance(data, dict):
-                session.status_data = {}
-            return session.status_data
-        data = getattr(self, "_direct_status_data", None)
-        if not isinstance(data, dict):
-            self._direct_status_data = {}
-        return self._direct_status_data
+        return app_property_proxy_runtime.get_status_data(self)
 
     @status_data.setter
     def status_data(self, value: dict) -> None:
-        data = dict(value or {})
-        override = getattr(self, "_status_data_session_override", None)
-        if override is not None:
-            override.status_data = data
-            return
-        mgr = self._tab_manager
-        if mgr is not None:
-            mgr.active_session.status_data = data
-            return
-        self._direct_status_data = data
+        app_property_proxy_runtime.set_status_data(self, value)
 
     @property
     def _request_queue(self):
-        mgr = self._tab_manager
-        if mgr is not None:
-            return mgr.active_session.request_queue
-        return self._direct_request_queue
+        return app_property_proxy_runtime.get_request_queue(self)
 
     @_request_queue.setter
     def _request_queue(self, value) -> None:
-        mgr = self._tab_manager
-        if mgr is not None:
-            mgr.active_session.request_queue = value
-        self._direct_request_queue = value
+        app_property_proxy_runtime.set_request_queue(self, value)
 
     @property
     def _request_worker_task(self):
-        mgr = self._tab_manager
-        if mgr is not None:
-            return mgr.active_session.request_worker_task
-        return self._direct_request_worker_task
+        return app_property_proxy_runtime.get_request_worker_task(self)
 
     @_request_worker_task.setter
     def _request_worker_task(self, value) -> None:
-        mgr = self._tab_manager
-        if mgr is not None:
-            mgr.active_session.request_worker_task = value
-        self._direct_request_worker_task = value
+        app_property_proxy_runtime.set_request_worker_task(self, value)
 
     def _t(self, key: str, **kwargs: object) -> str:
         return self._messages.text(key, **kwargs)
@@ -219,9 +175,6 @@ class AgentCliApp(
         if measured_width <= 0:
             measured_width = max(1, int(self.size.width))
         task_hint.update(self._crop_one_line(self._transcript_task_hint_text, measured_width))
-
-    def _refresh_top_title_bar(self) -> None:
-        app_tab_actions_runtime.refresh_top_title_bar(self)
 
     def _set_top_title_base(self) -> None:
         self._top_title_text = self._top_title_base
@@ -270,6 +223,7 @@ class AgentCliApp(
                 with Horizontal(id="top_title_row"):
                     yield Static(self._top_title_leading_symbol, id="top_title_icon")
                     yield Static(self._top_title_text, id="top_title_bar")
+                    yield Static(">>", id="split_toggle_btn")
                 yield Static(self._transcript_task_hint_text, id="transcript_task_hint")
                 with Horizontal(id="content_area"):
                     yield TabBar(id="tab_bar", orientation="vertical")
@@ -434,66 +388,3 @@ class AgentCliApp(
 
     def action_toggle_latest_web_item(self) -> None:
         app_preview_actions_runtime.action_toggle_latest_web_item(self)
-
-    def action_new_tab(self) -> None:
-        app_tab_actions_runtime.action_new_tab(self)
-
-    def action_fork_tab(self) -> None:
-        app_tab_actions_runtime.action_fork_tab(self)
-
-    def action_close_tab(self) -> None:
-        app_tab_actions_runtime.action_close_tab(self)
-
-    def action_next_tab(self) -> None:
-        app_tab_actions_runtime.action_next_tab(self)
-
-    def action_prev_tab(self) -> None:
-        app_tab_actions_runtime.action_prev_tab(self)
-
-    def _dismiss_request_user_input_overlay_for_inactive_tab(self) -> None:
-        app_tab_actions_runtime.dismiss_request_user_input_overlay_for_inactive_tab(self)
-
-    def _restore_pending_interactions_for_tab(self, tab_id: str) -> None:
-        app_tab_actions_runtime.restore_pending_interactions_for_tab(self, tab_id)
-
-    def _set_busy_for_tab(self, tab_id: str, busy: bool) -> None:
-        app_tab_actions_runtime.set_busy_for_tab(self, tab_id, busy)
-
-    def _mark_tab_transcript_updated(self, tab_id: str, *, unread: bool) -> None:
-        app_tab_actions_runtime.mark_tab_transcript_updated(self, tab_id, unread=unread)
-
-    def _capture_tab_live_turn_state(self) -> dict[str, object]:
-        return app_tab_actions_runtime.capture_tab_live_turn_state(self)
-
-    def _restore_tab_live_turn_state(self, state: dict[str, object]) -> None:
-        app_tab_actions_runtime.restore_tab_live_turn_state(self, state)
-
-    def _run_with_tab_transcript_state(self, session: object, callback) -> None:
-        app_tab_actions_runtime.run_with_tab_transcript_state(self, session, callback)
-
-    def _on_request_start_for_tab(self, tab_id: str, text: str) -> None:
-        app_tab_actions_runtime.on_request_start_for_tab(self, tab_id, text)
-
-    def _begin_activity_capture_for_tab(self, tab_id: str) -> None:
-        app_tab_actions_runtime.begin_activity_capture_for_tab(self, tab_id)
-
-    def _render_response_for_tab(self, tab_id: str, response: object) -> None:
-        app_tab_actions_runtime.render_response_for_tab(self, tab_id, response)
-
-    def _handle_response_for_tab(self, tab_id: str, response: object) -> None:
-        app_tab_actions_runtime.handle_response_for_tab(self, tab_id, response)
-
-    def _write_reply_for_tab(self, tab_id: str, text: str) -> None:
-        app_tab_actions_runtime.write_reply_for_tab(self, tab_id, text)
-
-    def _on_tab_activity(self, tab_id: str, event: object) -> None:
-        app_tab_actions_runtime.on_tab_activity(self, tab_id, event)
-
-    def _on_tab_turn_event(self, tab_id: str, event: object) -> None:
-        app_tab_actions_runtime.on_tab_turn_event(self, tab_id, event)
-
-    def _echo_prompt_for_tab(self, tab_id: str, text: str, attachments: list | None = None) -> None:
-        app_tab_actions_runtime.echo_prompt_for_tab(self, tab_id, text, attachments)
-
-    def _on_idle_for_tab(self, tab_id: str) -> None:
-        app_tab_actions_runtime.on_idle_for_tab(self, tab_id)

@@ -375,6 +375,14 @@ class AppRuntimeFlowMixin:
     def _exit_request_payload(response: object) -> dict[str, object] | None:
         return pure_helpers_runtime.exit_request_payload(response)
 
+    def action_split_open(self) -> None:
+        self._handle_preview_control_request("open")
+        self._refresh_split_toggle_button()
+
+    def action_split_close(self) -> None:
+        self._handle_preview_control_request("close")
+        self._refresh_split_toggle_button()
+
     def _handle_preview_control_request(self, action: str) -> None:
         normalized = str(action or "toggle").strip().lower() or "toggle"
         if normalized == "status":
@@ -407,6 +415,21 @@ class AppRuntimeFlowMixin:
         if not pane:
             return True
         return not transcript_preview_pane.preview_pane_exists(pane)
+
+    def _refresh_split_toggle_button(self) -> None:
+        try:
+            from textual.widgets import Static
+
+            btn = self.query_one("#split_toggle_btn", Static)
+            is_open = not self._preview_pane_disabled_or_missing()
+            compact = int(getattr(getattr(btn, "size", None), "width", 0) or 2) < 2
+            if compact:
+                icon = "<" if is_open else ">"
+            else:
+                icon = "<<" if is_open else ">>"
+            btn.update(icon)
+        except Exception:
+            pass
 
     def _preview_control_status_text(self) -> str:
         if transcript_preview_pane.preview_pane_user_disabled():

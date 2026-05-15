@@ -81,6 +81,156 @@ verify_checksum_if_available() {
   [[ "$actual" == "$expected" ]] || fail "sha256 mismatch for $(basename "$archive")"
 }
 
+write_agenthub_wrapper() {
+  local wrapper="$1"
+  local executable="$2"
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'set -euo pipefail\n\n'
+    printf 'AGENTHUB_CLI_EXECUTABLE=%q\n' "$executable"
+    cat <<'WRAPPER'
+
+STARTUP_CWD="$(pwd -P 2>/dev/null || pwd)"
+ORIGINAL_ARGS=("$@")
+
+truthy() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+has_explicit_run_mode() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      -h|--help|--headless|--serve|--provider-status|--stdin|--prompt|--prompt=*|--json|--jsonl|--output-format|--output-format=*|--resume|--resume=*|--resume-last|--resume-path|--resume-path=*|resume)
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+tmux_supported_platform() {
+  case "$(uname -s 2>/dev/null || true)" in
+    MINGW*|MSYS*|CYGWIN*)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
+should_use_tmux_preview_layout() {
+  if [[ -n "${AGENTHUB_TMUX_LAYOUT_CHILD:-}" ]]; then
+    return 1
+  fi
+  if truthy "${AGENTHUB_DISABLE_TMUX_LAYOUT:-}"; then
+    return 1
+  fi
+  if has_explicit_run_mode "$@"; then
+    return 1
+  fi
+  if [[ -z "${TMUX:-}" && (! -t 0 || ! -t 1) ]]; then
+    return 1
+  fi
+  if ! tmux_supported_platform; then
+    return 1
+  fi
+  if ! command -v tmux >/dev/null 2>&1; then
+    return 1
+  fi
+  return 0
+}
+
+shell_join() {
+  local joined=""
+  local arg
+  for arg in "$@"; do
+    if [[ -n "$joined" ]]; then
+      joined+=" "
+    fi
+    joined+="$(printf '%q' "$arg")"
+  done
+  printf '%s' "$joined"
+}
+
+tmux_child_command() {
+  local tui_pane="$1"
+  local command
+  command="cd $(printf '%q' "$STARTUP_CWD") && env"
+  command+=" AGENTHUB_TMUX_LAYOUT_CHILD=1"
+  command+=" AGENTHUB_TUI_PANE=$(printf '%q' "$tui_pane")"
+  command+=" AGENTHUB_PREVIEW_WORKSPACE=$(printf '%q' "${AGENTHUB_PREVIEW_WORKSPACE:-$STARTUP_CWD}")"
+  command+=" AGENTHUB_PREVIEW_DISABLED=1"
+  command+=" AGENTHUB_STARTUP_CWD=$(printf '%q' "$STARTUP_CWD")"
+  command+=" AGENTHUB_STARTUP_CWD_LAUNCHER_ACTIVE=1"
+  command+=" AGENTHUB_STARTUP_CWD_SOURCE=installer_wrapper"
+  command+=" AGENTHUB_CLI_EXECUTABLE=$(printf '%q' "$AGENTHUB_CLI_EXECUTABLE")"
+  command+=" $(printf '%q' "$AGENTHUB_CLI_EXECUTABLE")"
+  if ((${#ORIGINAL_ARGS[@]} > 0)); then
+    command+=" $(shell_join "${ORIGINAL_ARGS[@]}")"
+  fi
+  printf '%s' "$command"
+}
+
+start_tmux_preview_layout_in_current_session() {
+  local tui_pane
+  tui_pane="$(tmux display-message -p "#{pane_id}" 2>/dev/null || printf '%s' "${TMUX_PANE:-}")"
+  export AGENTHUB_TMUX_LAYOUT_CHILD=1
+  export AGENTHUB_TUI_PANE="$tui_pane"
+  export AGENTHUB_PREVIEW_WORKSPACE="${AGENTHUB_PREVIEW_WORKSPACE:-$STARTUP_CWD}"
+  export AGENTHUB_PREVIEW_DISABLED=1
+  export AGENTHUB_STARTUP_CWD="$STARTUP_CWD"
+  export AGENTHUB_STARTUP_CWD_LAUNCHER_ACTIVE=1
+  export AGENTHUB_STARTUP_CWD_SOURCE=installer_wrapper
+}
+
+start_tmux_preview_layout_new_session() {
+  local session_name="agenthub-$PPID-$$-$(date +%s)"
+  local tui_pane
+  local child_command
+  if ! tmux new-session -d -s "$session_name" -c "$STARTUP_CWD"; then
+    return 125
+  fi
+  tmux set-option -t "$session_name" status off >/dev/null 2>&1 || true
+  tmux set-option -t "$session_name" mouse on >/dev/null 2>&1 || true
+  tui_pane="$(tmux display-message -p -t "${session_name}:0.0" "#{pane_id}" 2>/dev/null || true)"
+  child_command="$(tmux_child_command "$tui_pane")"
+  if ! tmux respawn-pane -k -t "${session_name}:0.0" -c "$STARTUP_CWD" -- "$child_command"; then
+    tmux kill-session -t "$session_name" >/dev/null 2>&1 || true
+    return 125
+  fi
+  tmux select-pane -t "${session_name}:0.0" >/dev/null 2>&1 || true
+  tmux attach-session -t "$session_name"
+}
+
+if should_use_tmux_preview_layout "${ORIGINAL_ARGS[@]}"; then
+  if [[ -n "${TMUX:-}" ]]; then
+    start_tmux_preview_layout_in_current_session
+  else
+    if start_tmux_preview_layout_new_session; then
+      exit 0
+    else
+      tmux_status=$?
+      if ((tmux_status != 125)); then
+        exit "$tmux_status"
+      fi
+    fi
+  fi
+fi
+
+exec "$AGENTHUB_CLI_EXECUTABLE" "$@"
+WRAPPER
+  } > "$wrapper"
+}
+
 install_bundle() {
   local extract_dir target_dir executable executable_name wrapper
   extract_dir="$1"
@@ -101,10 +251,7 @@ install_bundle() {
 
   mkdir -p "$BIN_DIR"
   wrapper="$BIN_DIR/$COMMAND_NAME"
-  {
-    printf '#!/usr/bin/env bash\n'
-    printf 'exec %q "$@"\n' "$target_dir/$executable_name"
-  } > "$wrapper"
+  write_agenthub_wrapper "$wrapper" "$target_dir/$executable_name"
   chmod +x "$wrapper"
 }
 

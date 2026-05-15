@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import pty
 import stat
 import struct
 import subprocess
@@ -203,7 +204,16 @@ class BuildReleaseScriptTest(unittest.TestCase):
             bundle_root.mkdir()
             executable = bundle_root / "agenthub-cli"
             executable.write_text(
-                "#!/usr/bin/env bash\nprintf 'AgentHub test\\n'\n", encoding="utf-8"
+                "\n".join(
+                    [
+                        "#!/usr/bin/env bash",
+                        "printf 'AgentHub test\\n'",
+                        "printf 'args=%s\\n' \"$*\"",
+                        "printf 'tmux_child=%s\\n' \"${AGENTHUB_TMUX_LAYOUT_CHILD:-}\"",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
             )
             executable.chmod(executable.stat().st_mode | stat.S_IXUSR)
 
@@ -267,8 +277,137 @@ class BuildReleaseScriptTest(unittest.TestCase):
             )
 
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertTrue((bin_dir / "agenthub-test").exists())
+            wrapper = bin_dir / "agenthub-test"
+            self.assertTrue(wrapper.exists())
             self.assertNotIn("unbound variable", result.stdout + result.stderr)
+            wrapper_text = wrapper.read_text(encoding="utf-8")
+            self.assertIn("should_use_tmux_preview_layout", wrapper_text)
+            self.assertIn("--headless|--serve|--provider-status", wrapper_text)
+            self.assertIn("tmux new-session", wrapper_text)
+
+            syntax = subprocess.run(
+                ["bash", "-n", str(wrapper)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(syntax.returncode, 0, syntax.stdout + syntax.stderr)
+
+            direct = subprocess.run(
+                [str(wrapper), "--provider-status"],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(direct.returncode, 0, direct.stdout + direct.stderr)
+            self.assertIn("AgentHub test", direct.stdout)
+            self.assertIn("args=--provider-status", direct.stdout)
+            self.assertIn("tmux_child=", direct.stdout)
+
+            tmux = fake_bin / "tmux"
+            tmux_log = root / "tmux.log"
+            tmux.write_text(
+                "\n".join(
+                    [
+                        "#!/usr/bin/env bash",
+                        "set -euo pipefail",
+                        'printf \'%s\\n\' "$*" >> "$FAKE_TMUX_LOG"',
+                        'case "${1:-}" in',
+                        "  display-message) printf '%%99\\n' ;;",
+                        "  respawn-pane)",
+                        '    child_command="${@: -1}"',
+                        '    bash -lc "$child_command"',
+                        "    ;;",
+                        "  *) exit 0 ;;",
+                        "esac",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            tmux.chmod(tmux.stat().st_mode | stat.S_IXUSR)
+
+            tmux_env = os.environ.copy()
+            tmux_env.update(
+                {
+                    "PATH": f"{fake_bin}{os.pathsep}{tmux_env.get('PATH', '')}",
+                    "FAKE_TMUX_LOG": str(tmux_log),
+                    "TMUX": "/tmp/agenthub-test-tmux-socket",
+                    "TMUX_PANE": "%7",
+                }
+            )
+            tui_in_tmux = subprocess.run(
+                [str(wrapper)],
+                env=tmux_env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(
+                tui_in_tmux.returncode,
+                0,
+                tui_in_tmux.stdout + tui_in_tmux.stderr,
+            )
+            self.assertIn("AgentHub test", tui_in_tmux.stdout)
+            self.assertIn("args=", tui_in_tmux.stdout)
+            self.assertIn("tmux_child=1", tui_in_tmux.stdout)
+
+            tmux_new_env = os.environ.copy()
+            tmux_new_env.update(
+                {
+                    "PATH": f"{fake_bin}{os.pathsep}{tmux_new_env.get('PATH', '')}",
+                    "FAKE_TMUX_LOG": str(tmux_log),
+                }
+            )
+            master_fd, slave_fd = pty.openpty()
+            proc: subprocess.Popen[bytes] | None = None
+            try:
+                proc = subprocess.Popen(
+                    [str(wrapper)],
+                    env=tmux_new_env,
+                    stdin=slave_fd,
+                    stdout=slave_fd,
+                    stderr=slave_fd,
+                    close_fds=True,
+                )
+                os.close(slave_fd)
+                slave_fd = -1
+                output_chunks: list[bytes] = []
+                while True:
+                    try:
+                        chunk = os.read(master_fd, 1024)
+                    except OSError:
+                        break
+                    if chunk:
+                        output_chunks.append(chunk)
+                    if proc.poll() is not None:
+                        break
+                proc.wait(timeout=5)
+                try:
+                    while True:
+                        chunk = os.read(master_fd, 1024)
+                        if not chunk:
+                            break
+                        output_chunks.append(chunk)
+                except OSError:
+                    pass
+            finally:
+                if slave_fd >= 0:
+                    os.close(slave_fd)
+                os.close(master_fd)
+                if proc is not None and proc.poll() is None:
+                    proc.terminate()
+                    proc.wait(timeout=5)
+
+            tmux_new_output = b"".join(output_chunks).decode("utf-8", errors="replace")
+            assert proc is not None
+            self.assertEqual(proc.returncode, 0, tmux_new_output)
+            self.assertIn("AgentHub test", tmux_new_output)
+            self.assertIn("tmux_child=1", tmux_new_output)
+            tmux_log_text = tmux_log.read_text(encoding="utf-8")
+            self.assertIn("new-session -d", tmux_log_text)
+            self.assertIn("respawn-pane -k", tmux_log_text)
+            self.assertIn("attach-session", tmux_log_text)
 
     def test_package_output_onefile_replaces_stale_onedir_payload(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

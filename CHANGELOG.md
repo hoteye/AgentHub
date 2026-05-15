@@ -8,6 +8,12 @@ The format is based on Keep a Changelog, with one release section per published 
 
 No unreleased changes yet.
 
+## [0.1.12] - 2026-05-15
+
+### Changed
+
+- Updated the public installer `agenthub` launcher so interactive TUI startup prepares tmux split-preview support, while headless/help/provider-status commands still run the packaged binary directly.
+
 ## [0.1.11] - 2026-05-13
 
 ### Fixed

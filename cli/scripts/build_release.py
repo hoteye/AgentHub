@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import hashlib
 import importlib.util
 import json
@@ -21,9 +20,11 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import build_release_args_helpers as args_helpers  # noqa: E402
 import build_release_icon_helpers as icon_helpers  # noqa: E402
 import build_release_packaging_helpers as packaging_helpers  # noqa: E402
 import build_release_runtime_helpers as runtime_helpers  # noqa: E402
+import build_release_sidecar_helpers as sidecar_helpers  # noqa: E402
 from build_release_runtime_helpers import (  # noqa: E402
     CANONICAL_CLI_DYNAMIC_HIDDEN_IMPORTS,
     PYINSTALLER_OPTIONAL_HEAVY_EXCLUDES,
@@ -57,56 +58,8 @@ def cli_version() -> str:
     return str(namespace["__version__"])
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Build portable executable releases for AgentHub CLI."
-    )
-    parser.add_argument("--name", default="agenthub-cli", help="Executable base name.")
-    parser.add_argument(
-        "--mode", choices=("onedir", "onefile"), default="onedir", help="PyInstaller bundle mode."
-    )
-    parser.add_argument(
-        "--clean", action="store_true", help="Remove previous build/dist outputs before building."
-    )
-    parser.add_argument(
-        "--artifact-dir", default="", help="Output directory for packaged archives."
-    )
-    parser.add_argument(
-        "--codex-sidecar-bin",
-        default="",
-        help=(
-            "Optional Codex ref sidecar binary to bundle under "
-            "runtime/codex/<platform>/<version>/."
-        ),
-    )
-    parser.add_argument(
-        "--codex-sidecar-version",
-        default="",
-        help="Runtime bundle version label. Defaults to the binary --version output or 'current'.",
-    )
-    parser.add_argument(
-        "--codex-sidecar-source-revision",
-        default="",
-        help="Optional Codex ref source revision recorded in the runtime manifest.",
-    )
-    parser.add_argument(
-        "--codex-sidecar-runtime-root",
-        default="",
-        help=(
-            "Optional prepared Codex runtime root to bundle, for example runtime/codex. "
-            "Copies the current platform/version bundle including codex-app-server, rg, "
-            "bwrap, and manifests."
-        ),
-    )
-    parser.add_argument(
-        "--codex-sidecar-runtime-bundle",
-        default="",
-        help=(
-            "Optional prepared Codex runtime bundle directory to copy directly, for "
-            "example runtime/codex/linux-x86_64/rust-v0.129.0."
-        ),
-    )
-    return parser.parse_args(argv)
+def parse_args(argv: list[str] | None = None):
+    return args_helpers.parse_args(argv)
 
 
 def detect_platform_tag() -> str:
@@ -130,11 +83,11 @@ def probe_codex_version(path: Path, *, timeout: float = 5.0) -> str:
 
 
 def normalized_runtime_version(*, explicit_version: str, binary_version: str) -> str:
-    for raw in (explicit_version, binary_version, "current"):
-        text = str(raw or "").strip()
-        if text:
-            return _safe_path_label(text)
-    return "current"
+    return args_helpers.normalized_runtime_version(
+        explicit_version=explicit_version,
+        binary_version=binary_version,
+        safe_path_label_func=_safe_path_label,
+    )
 
 
 def _safe_path_label(value: str) -> str:
@@ -377,7 +330,7 @@ def bundle_codex_sidecar_runtime(
     source_revision: str = "",
     platform_key: str | None = None,
 ) -> Path | None:
-    return packaging_helpers.bundle_codex_sidecar_runtime(
+    return sidecar_helpers.bundle_codex_sidecar_runtime(
         packaged_root,
         codex_sidecar_bin=codex_sidecar_bin,
         runtime_version=runtime_version,
@@ -398,7 +351,7 @@ def bundle_codex_sidecar_runtime_root(
     runtime_version: str = "",
     platform_key: str | None = None,
 ) -> Path | None:
-    return packaging_helpers.bundle_codex_sidecar_runtime_root(
+    return sidecar_helpers.bundle_codex_sidecar_runtime_root(
         packaged_root,
         runtime_root=runtime_root,
         runtime_version=runtime_version,
@@ -416,7 +369,7 @@ def bundle_codex_sidecar_runtime_bundle(
     runtime_version: str = "",
     platform_key: str | None = None,
 ) -> Path | None:
-    return packaging_helpers.bundle_codex_sidecar_runtime_bundle(
+    return sidecar_helpers.bundle_codex_sidecar_runtime_bundle(
         packaged_root,
         runtime_bundle=runtime_bundle,
         runtime_version=runtime_version,
@@ -428,22 +381,19 @@ def bundle_codex_sidecar_runtime_bundle(
 
 
 def _runtime_root_manifest(runtime_root: Path) -> dict[str, object]:
-    return packaging_helpers._runtime_root_manifest(runtime_root)
+    return sidecar_helpers._runtime_root_manifest(runtime_root)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     cli = cli_root()
     platform_tag = detect_platform_tag()
-    artifact_dir = (
-        Path(args.artifact_dir).resolve()
-        if str(args.artifact_dir or "").strip()
-        else (cli / "artifacts" / "releases").resolve()
-    )
+    artifact_dir = args_helpers.release_artifact_dir(args.artifact_dir, cli=cli)
     artifact_dir.mkdir(parents=True, exist_ok=True)
-    build_dir = cli / "build" / "pyinstaller" / platform_tag
-    dist_dir = cli / "dist" / platform_tag
-    spec_dir = cli / "build" / "spec" / platform_tag
+    build_dir, dist_dir, spec_dir = args_helpers.release_output_dirs(
+        cli=cli,
+        platform_tag=platform_tag,
+    )
     if args.clean:
         ensure_clean(build_dir)
         ensure_clean(dist_dir)
@@ -465,27 +415,18 @@ def main(argv: list[str] | None = None) -> int:
         bundle_name=args.name, mode=args.mode, artifact_dir=artifact_dir, dist_dir=dist_dir
     )
     packaged_root = artifact_dir / f"{args.name}-{cli_version()}-{platform_tag}"
-    if str(args.codex_sidecar_bin or "").strip():
-        bundle_codex_sidecar_runtime(
-            packaged_root,
-            codex_sidecar_bin=args.codex_sidecar_bin,
-            runtime_version=args.codex_sidecar_version,
-            source_revision=args.codex_sidecar_source_revision,
-        )
-        archive = archive_packaged_root(packaged_root, artifact_dir=artifact_dir)
-    elif str(args.codex_sidecar_runtime_bundle or "").strip():
-        bundle_codex_sidecar_runtime_bundle(
-            packaged_root,
-            runtime_bundle=args.codex_sidecar_runtime_bundle,
-            runtime_version=args.codex_sidecar_version,
-        )
-        archive = archive_packaged_root(packaged_root, artifact_dir=artifact_dir)
-    elif str(args.codex_sidecar_runtime_root or "").strip():
-        bundle_codex_sidecar_runtime_root(
-            packaged_root,
-            runtime_root=args.codex_sidecar_runtime_root,
-            runtime_version=args.codex_sidecar_version,
-        )
+    if sidecar_helpers.bundle_requested_codex_sidecar_runtime(
+        packaged_root,
+        codex_sidecar_bin=args.codex_sidecar_bin,
+        codex_sidecar_runtime_bundle=args.codex_sidecar_runtime_bundle,
+        codex_sidecar_runtime_root=args.codex_sidecar_runtime_root,
+        runtime_version=args.codex_sidecar_version,
+        source_revision=args.codex_sidecar_source_revision,
+        has_arg_value_func=args_helpers.has_arg_value,
+        bundle_codex_sidecar_runtime_func=bundle_codex_sidecar_runtime,
+        bundle_codex_sidecar_runtime_bundle_func=bundle_codex_sidecar_runtime_bundle,
+        bundle_codex_sidecar_runtime_root_func=bundle_codex_sidecar_runtime_root,
+    ):
         archive = archive_packaged_root(packaged_root, artifact_dir=artifact_dir)
     print(str(archive))
     return 0
