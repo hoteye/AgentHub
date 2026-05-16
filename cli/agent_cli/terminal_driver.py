@@ -143,9 +143,12 @@ else:
                                 )
                                 return self._recover_terminal_foreground()
                             raise
+                        if not raw_data:
+                            startup_log("driver.input_thread.empty_read")
+                            return False
                         unicode_data = decode(raw_data, final=final and last)
                         if not unicode_data:
-                            return False
+                            break
                         for event in feed(unicode_data):
                             self.process_message(event)
                 for event in tick():

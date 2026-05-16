@@ -48,7 +48,9 @@ def backspace(composer) -> None:
         composer._replace_range(atomic[0], atomic[1], "")
         return
     composer._push_undo_snapshot()
-    composer._text = composer._text[: composer._cursor_pos - 1] + composer._text[composer._cursor_pos :]
+    composer._text = (
+        composer._text[: composer._cursor_pos - 1] + composer._text[composer._cursor_pos :]
+    )
     composer._cursor_pos -= 1
     composer._selection_anchor = None
     composer._preferred_column = None
@@ -66,7 +68,9 @@ def delete_forward(composer) -> None:
         composer._replace_range(atomic[0], atomic[1], "")
         return
     composer._push_undo_snapshot()
-    composer._text = composer._text[: composer._cursor_pos] + composer._text[composer._cursor_pos + 1 :]
+    composer._text = (
+        composer._text[: composer._cursor_pos] + composer._text[composer._cursor_pos + 1 :]
+    )
     composer._selection_anchor = None
     composer._preferred_column = None
     composer._sync()
@@ -88,14 +92,32 @@ def move_cursor_right(composer, *, extend: bool = False) -> None:
     composer._sync()
 
 
-def move_cursor_word_left(composer) -> None:
-    composer._set_cursor_position(composer._beginning_of_previous_word(), extend=False)
+def move_cursor_word_left(composer, *, extend: bool = False) -> None:
+    composer._set_cursor_position(composer._beginning_of_previous_word(), extend=extend)
     composer._preferred_column = None
     composer._sync()
 
 
-def move_cursor_word_right(composer) -> None:
-    composer._set_cursor_position(composer._end_of_next_word(), extend=False)
+def move_cursor_word_right(composer, *, extend: bool = False) -> None:
+    composer._set_cursor_position(composer._end_of_next_word(), extend=extend)
+    composer._preferred_column = None
+    composer._sync()
+
+
+def move_cursor_logical_line_end(
+    composer,
+    *,
+    extend: bool = False,
+    move_to_next_line_when_at_end: bool = False,
+) -> None:
+    target_pos = composer._line_end(composer._cursor_pos)
+    if (
+        move_to_next_line_when_at_end
+        and composer._cursor_pos == target_pos
+        and target_pos < len(composer._text)
+    ):
+        target_pos = composer._line_end(target_pos + 1)
+    composer._set_cursor_position(target_pos, extend=extend)
     composer._preferred_column = None
     composer._sync()
 
@@ -123,7 +145,9 @@ def move_cursor_up(composer, *, extend: bool = False) -> None:
         return
     column = composer._current_or_preferred_column()
     target_row = rows[row_index - 1]
-    composer._set_cursor_position(composer._position_in_row_for_column(target_row, column), extend=extend)
+    composer._set_cursor_position(
+        composer._position_in_row_for_column(target_row, column), extend=extend
+    )
     composer._preferred_column = column
     composer._sync()
 
@@ -137,7 +161,9 @@ def move_cursor_down(composer, *, extend: bool = False) -> None:
         return
     column = composer._current_or_preferred_column()
     target_row = rows[row_index + 1]
-    composer._set_cursor_position(composer._position_in_row_for_column(target_row, column), extend=extend)
+    composer._set_cursor_position(
+        composer._position_in_row_for_column(target_row, column), extend=extend
+    )
     composer._preferred_column = column
     composer._sync()
 
@@ -181,6 +207,68 @@ def delete_selection(composer) -> bool:
     start, end = bounds
     composer._replace_range(start, end, "")
     return True
+
+
+def kill_range(composer, start: int, end: int) -> bool:
+    expanded_start, expanded_end = composer._expand_bounds_to_atomic_tokens(start, end)
+    if expanded_end <= expanded_start:
+        return False
+    removed_text = composer._text[expanded_start:expanded_end]
+    if not removed_text:
+        return False
+    composer._kill_buffer = removed_text
+    composer._replace_range(expanded_start, expanded_end, "")
+    return True
+
+
+def delete_backward_word(composer) -> None:
+    bounds = composer.selection_bounds
+    if bounds is not None:
+        composer._kill_range(bounds[0], bounds[1])
+        return
+    if composer._cursor_pos <= 0:
+        return
+    composer._kill_range(composer._beginning_of_previous_word(), composer._cursor_pos)
+
+
+def delete_forward_word(composer) -> None:
+    bounds = composer.selection_bounds
+    if bounds is not None:
+        composer._kill_range(bounds[0], bounds[1])
+        return
+    if composer._cursor_pos >= len(composer._text):
+        return
+    composer._kill_range(composer._cursor_pos, composer._end_of_next_word())
+
+
+def kill_line_start(composer) -> None:
+    bounds = composer.selection_bounds
+    if bounds is not None:
+        composer._kill_range(bounds[0], bounds[1])
+        return
+    line_start_pos = composer._line_start(composer._cursor_pos)
+    if composer._cursor_pos == line_start_pos:
+        return
+    composer._kill_range(line_start_pos, composer._cursor_pos)
+
+
+def kill_line_end(composer) -> None:
+    bounds = composer.selection_bounds
+    if bounds is not None:
+        composer._kill_range(bounds[0], bounds[1])
+        return
+    line_end_pos = composer._line_end(composer._cursor_pos)
+    if composer._cursor_pos == line_end_pos:
+        if line_end_pos < len(composer._text):
+            composer._kill_range(composer._cursor_pos, line_end_pos + 1)
+        return
+    composer._kill_range(composer._cursor_pos, line_end_pos)
+
+
+def yank_kill_buffer(composer) -> None:
+    if not composer._kill_buffer:
+        return
+    composer.insert_text(composer._kill_buffer)
 
 
 def undo(composer) -> None:
@@ -248,7 +336,9 @@ def row_display_column(composer, row: tuple[int, int], pos: int) -> int:
 
 
 def position_in_row_for_column(composer, row: tuple[int, int], target_column: int) -> int:
-    return composer_editing_model_runtime.position_in_row_for_column(composer._text, row, target_column)
+    return composer_editing_model_runtime.position_in_row_for_column(
+        composer._text, row, target_column
+    )
 
 
 def set_cursor_position(composer, pos: int, *, extend: bool) -> None:
@@ -287,7 +377,9 @@ def atomic_range_at(composer, pos: int) -> tuple[int, int] | None:
 
 
 def expand_bounds_to_atomic_tokens(composer, start: int, end: int) -> tuple[int, int]:
-    return composer_editing_model_runtime.expand_bounds_to_atomic_tokens(composer._atomic_ranges(), start, end)
+    return composer_editing_model_runtime.expand_bounds_to_atomic_tokens(
+        composer._atomic_ranges(), start, end
+    )
 
 
 def snapshot(composer) -> ComposerSnapshot:

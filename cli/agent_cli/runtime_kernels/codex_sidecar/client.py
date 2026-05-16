@@ -7,6 +7,16 @@ from collections.abc import Callable
 from queue import Empty, Queue
 from typing import Any
 
+from cli.agent_cli.runtime_kernels.codex_sidecar.client_protocol import (
+    is_notification,
+    is_server_request,
+    make_protocol_error_notification,
+    make_unmatched_response_notification,
+    notification_from_payload,
+    response_request_id_from_payload,
+    response_result_or_raise,
+    server_request_from_payload,
+)
 from cli.agent_cli.runtime_kernels.codex_sidecar.errors import (
     CodexSidecarProcessError,
     CodexSidecarProtocolError,
@@ -241,18 +251,7 @@ class CodexSidecarClient:
                 payload = response_queue.get(timeout=min(0.25, remaining))
             except Empty:
                 continue
-            if "error" in payload:
-                error = payload.get("error")
-                message = (
-                    str(error.get("message") or "JSON-RPC error")
-                    if isinstance(error, dict)
-                    else "JSON-RPC error"
-                )
-                raise CodexSidecarRequestError(
-                    f"{message}: {json.dumps(error, ensure_ascii=False)}"
-                )
-            result = payload.get("result")
-            return dict(result or {}) if isinstance(result, dict) else {"value": result}
+            return response_result_or_raise(payload)
 
     def _read_stdout(self) -> None:
         proc = self._require_process()
@@ -264,24 +263,13 @@ class CodexSidecarClient:
             try:
                 payload = json.loads(stripped)
             except json.JSONDecodeError as exc:
-                self._notifications.put(
-                    JsonRpcNotification(
-                        method="$agenthub/protocolError",
-                        params={"error": str(exc), "line": stripped},
-                    )
-                )
+                self._notifications.put(make_protocol_error_notification(str(exc), line=stripped))
                 continue
             if isinstance(payload, dict):
                 self._route_payload(payload)
                 continue
             self._notifications.put(
-                JsonRpcNotification(
-                    method="$agenthub/protocolError",
-                    params={
-                        "error": "non-object JSON-RPC payload",
-                        "value": payload,
-                    },
-                )
+                make_protocol_error_notification("non-object JSON-RPC payload", value=payload)
             )
 
     def _require_process(self) -> Any:
@@ -327,89 +315,32 @@ class CodexSidecarClient:
             self._deferred_server_requests.append(request)
 
     def _route_payload(self, payload: JsonObject) -> None:
-        if _is_notification(payload):
+        if is_notification(payload):
             try:
-                self._notifications.put(_notification_from_payload(payload))
+                self._notifications.put(notification_from_payload(payload))
             except CodexSidecarProtocolError as exc:
                 self._notifications.put(
-                    JsonRpcNotification(
-                        method="$agenthub/protocolError",
-                        params={"error": str(exc), "payload": payload},
-                        raw=payload,
-                    )
+                    make_protocol_error_notification(str(exc), payload=payload, raw=payload)
                 )
             return
-        if _is_server_request(payload):
+        if is_server_request(payload):
             try:
-                self._server_requests.put(_server_request_from_payload(payload))
+                self._server_requests.put(server_request_from_payload(payload))
             except CodexSidecarProtocolError as exc:
                 self._notifications.put(
-                    JsonRpcNotification(
-                        method="$agenthub/protocolError",
-                        params={"error": str(exc), "payload": payload},
-                        raw=payload,
-                    )
+                    make_protocol_error_notification(str(exc), payload=payload, raw=payload)
                 )
             return
-        raw_request_id = payload.get("id")
-        if isinstance(raw_request_id, int):
-            request_id = raw_request_id
-        elif isinstance(raw_request_id, str) and raw_request_id.isdigit():
-            request_id = int(raw_request_id)
-        else:
+        try:
+            request_id = response_request_id_from_payload(payload)
+        except CodexSidecarProtocolError as exc:
             self._notifications.put(
-                JsonRpcNotification(
-                    method="$agenthub/protocolError",
-                    params={"error": "JSON-RPC response id is required", "payload": payload},
-                    raw=payload,
-                )
+                make_protocol_error_notification(str(exc), payload=payload, raw=payload)
             )
             return
         with self._responses_lock:
             response_queue = self._responses.get(request_id)
         if response_queue is None:
-            self._notifications.put(
-                JsonRpcNotification(
-                    method="$agenthub/unmatchedResponse",
-                    params={"requestId": request_id, "payload": payload},
-                    raw=payload,
-                )
-            )
+            self._notifications.put(make_unmatched_response_notification(request_id, payload))
             return
         response_queue.put(payload)
-
-
-def _is_notification(payload: JsonObject) -> bool:
-    return "method" in payload and "id" not in payload
-
-
-def _is_server_request(payload: JsonObject) -> bool:
-    return "method" in payload and "id" in payload and "params" in payload
-
-
-def _notification_from_payload(payload: JsonObject) -> JsonRpcNotification:
-    method = str(payload.get("method") or "")
-    if not method:
-        raise CodexSidecarProtocolError("notification method is required")
-    params = payload.get("params")
-    return JsonRpcNotification(
-        method=method,
-        params=dict(params or {}) if isinstance(params, dict) else {"value": params},
-        raw=payload,
-    )
-
-
-def _server_request_from_payload(payload: JsonObject) -> JsonRpcServerRequest:
-    method = str(payload.get("method") or "")
-    if not method:
-        raise CodexSidecarProtocolError("server request method is required")
-    request_id = payload.get("id")
-    if not isinstance(request_id, int | str):
-        raise CodexSidecarProtocolError("server request id is required")
-    params = payload.get("params")
-    return JsonRpcServerRequest(
-        request_id=request_id,
-        method=method,
-        params=dict(params or {}) if isinstance(params, dict) else {"value": params},
-        raw=payload,
-    )

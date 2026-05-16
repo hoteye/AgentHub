@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from cli.agent_cli.models import ToolEvent
 from cli.agent_cli.ui.transcript_formatting import format_activity_detail_lines
 from cli.agent_cli.ui.transcript_history import TranscriptEntry
+from cli.agent_cli.ui.transcript_structured_runtime import artifact_tool_payload, mcp_tool_payload
 
 
 def local_exec_like_mcp_tool_entry(
@@ -22,7 +23,12 @@ def local_exec_like_mcp_tool_entry(
     if not is_local_exec_like_mcp_tool_fn(item):
         return None
     payload = turn_tool_item_payload_fn(item)
-    command_text = unwrap_shell_wrapped_command_fn(str(payload.get("command") or payload.get("cmd") or "").strip()) or "command"
+    command_text = (
+        unwrap_shell_wrapped_command_fn(
+            str(payload.get("command") or payload.get("cmd") or "").strip()
+        )
+        or "command"
+    )
     result = item.get("result")
     output_text = ""
     for key in ("stdout", "output_text", "stderr", "text"):
@@ -46,6 +52,9 @@ def local_exec_like_mcp_tool_entry(
             "aggregated_output": output_text,
             "exit_code": payload.get("returncode", payload.get("exit_code")),
             "status": synthetic_status,
+            "cwd": payload.get("cwd"),
+            "duration_ms": payload.get("duration_ms"),
+            "process_id": payload.get("process_id") or payload.get("command_execution_process_id"),
         },
         item_key=item_key,
         scope_activity_key=scope_activity_key,
@@ -85,6 +94,13 @@ def mcp_tool_call_entry(
         lines=lines,
         status="success" if ok else ("error" if event_completed else "running"),
         activity_key=scope_activity_key(item_key),
+        structured=mcp_tool_payload(
+            item=item,
+            invocation=invocation,
+            detail=detail,
+            event_completed=event_completed,
+            ok=ok,
+        ),
         render_mode="tool_mcp",
     )
 
@@ -115,6 +131,13 @@ def view_image_mcp_tool_entry(
         ],
         status="success",
         activity_key=scope_activity_key(item_key),
+        structured=artifact_tool_payload(
+            name="view_image",
+            title="Image ready",
+            state="image_ready",
+            subject=subject,
+            metadata={"artifact_count": artifact_count},
+        ),
         render_mode="tool_view_image_ready",
     )
 
@@ -145,6 +168,13 @@ def view_document_mcp_tool_entry(
         ],
         status="success",
         activity_key=scope_activity_key(item_key),
+        structured=artifact_tool_payload(
+            name="view_document",
+            title="Document extracted",
+            state=state,
+            subject=subject,
+            metadata={"extraction_mode": extraction_mode},
+        ),
         render_mode="tool_view_document_ready",
     )
 
@@ -156,7 +186,9 @@ def input_image_output_entry(
     scope_activity_key: Callable[[str | None], str | None],
     input_image_output_transport_details_fn,
 ) -> TranscriptEntry | None:
-    display_name, image_count, transport_family, state = input_image_output_transport_details_fn(item)
+    display_name, image_count, transport_family, state = input_image_output_transport_details_fn(
+        item
+    )
     if image_count <= 0:
         return None
     label = "image artifact" if image_count == 1 else "image artifacts"
@@ -178,6 +210,16 @@ def input_image_output_entry(
         ],
         status="success",
         activity_key=scope_activity_key(item_key),
+        structured=artifact_tool_payload(
+            name="input_image_output",
+            title=header.removeprefix("• "),
+            state=state or "image_injected",
+            subject=subject,
+            metadata={
+                "image_count": image_count,
+                "transport_family": transport_family,
+            },
+        ),
         render_mode="tool_input_image_output",
     )
 
@@ -206,6 +248,13 @@ def document_output_entry(
         ],
         status="success",
         activity_key=scope_activity_key(item_key),
+        structured=artifact_tool_payload(
+            name="document_output",
+            title=header.removeprefix("• "),
+            state=state,
+            subject=subject,
+            metadata={"projection_mode": projection_mode},
+        ),
         render_mode="tool_document_output",
     )
 

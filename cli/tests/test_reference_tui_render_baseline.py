@@ -22,6 +22,7 @@ from cli.agent_cli.ui.status_indicator import (
 )
 from cli.agent_cli.ui.status_line_summary_runtime import build_provider_summary_text
 from cli.agent_cli.ui.transcript_history import (
+    ACTIVITY_PREFIX_STYLE,
     COMPLETION_TIME_STYLE,
     MARKDOWN_BLOCKQUOTE_STYLE,
     MARKDOWN_CODE_STYLE,
@@ -407,7 +408,7 @@ class ReferenceTuiRenderBaselineTest(unittest.IsolatedAsyncioTestCase):
             width=64,
         )
 
-        self.assertEqual(rendered.lines, ["• 先检查目录，再决定是否调用工具。"])
+        self.assertEqual(rendered.lines, ["◦ 先检查目录，再决定是否调用工具。"])
         self.assertIn((2, len(rendered.lines[0]), REASONING_TEXT_STYLE), rendered.line_styles[0])
 
     def test_final_separator_renders_as_reference_rule(self) -> None:
@@ -980,7 +981,7 @@ class ReferenceTuiRenderBaselineTest(unittest.IsolatedAsyncioTestCase):
             rendered_text = main_log.text
 
             self.assertIn("• 我先查看当前目录。", rendered_text)
-            self.assertIn("• Explored", rendered_text)
+            self.assertIn("◆ Explored", rendered_text)
             separator_lines = [
                 line.strip()
                 for line in rendered_text.splitlines()
@@ -1260,7 +1261,7 @@ class ReferenceTuiRenderBaselineTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 main_log.text,
                 "• I’m going to search the repo for where “Change Approved” is rendered to update that view.\n\n"
-                "• Explored\n"
+                "◆ Explored\n"
                 "  └ Search Change Approved\n"
                 "    Read diff_render.rs",
             )
@@ -1373,13 +1374,14 @@ class ReferenceTuiRenderBaselineTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             rendered.lines,
             [
-                "• Ran set -o pipefail",
+                "$ Ran set -o pipefail",
                 "  │ cargo test",
                 "  │ --all-features",
                 "  │ --quiet",
                 "  └ (no output)",
             ],
         )
+        self.assertIn((0, 2, ACTIVITY_PREFIX_STYLE), rendered.line_styles[0])
 
     def test_mcp_tool_visual_wrap_matches_reference_header_then_tree_layout(self) -> None:
         app = AgentCliApp()
@@ -1413,7 +1415,7 @@ class ReferenceTuiRenderBaselineTest(unittest.IsolatedAsyncioTestCase):
         assert entry is not None
         rendered = render_transcript_visual_entries([entry], width=36)
 
-        self.assertEqual(rendered.lines[0], "• Called")
+        self.assertEqual(rendered.lines[0], "◆ Called")
         self.assertTrue(rendered.lines[1].startswith("  └ metrics.get_nearby_metric("))
         self.assertTrue(rendered.lines[2].startswith("    "))
         self.assertTrue(rendered.lines[-1].startswith("    "))

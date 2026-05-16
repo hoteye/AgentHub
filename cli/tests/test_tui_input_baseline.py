@@ -248,6 +248,24 @@ class TuiInputBaselineTest(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(runtime.last_prompt)
             self.assertEqual(transcript.strip(), "")
 
+    async def test_home_and_end_keys_move_prompt_cursor_without_submitting(self) -> None:
+        runtime = _RecordingRuntime()
+        app = AgentCliApp(runtime=runtime)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            app._set_prompt_text("hello")
+
+            await pilot.press("home")
+            await pilot.pause()
+            composer = app.query_one("#prompt_composer", PromptComposer)
+            self.assertEqual(composer.cursor_pos, 0)
+
+            await pilot.press("end")
+            await pilot.pause()
+            self.assertEqual(composer.cursor_pos, len("hello"))
+            self.assertIsNone(runtime.last_prompt)
+
     async def test_escape_then_enter_fallback_inserts_newline_without_submitting(self) -> None:
         runtime = _RecordingRuntime()
         app = AgentCliApp(runtime=runtime)

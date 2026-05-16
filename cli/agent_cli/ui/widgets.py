@@ -46,6 +46,7 @@ class TranscriptArea(TextArea):
         self._drag_anchor_location: tuple[int, int] | None = None
         self._preview_click_candidate: tuple[int, int] | None = None
         self._preview_hover_target_span: tuple[int, int, int] | None = None
+        self._force_follow_bottom = False
         self._is_drag_selecting = False
         self._suppress_left_mouse_up_copy = False
 

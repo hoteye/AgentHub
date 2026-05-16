@@ -19,7 +19,7 @@ from cli.agent_cli.models import AgentIntent, PromptAttachment, ToolEvent
 from cli.agent_cli.providers import anthropic_claude_helpers_build_client as build_client_helpers
 from cli.agent_cli.providers import anthropic_claude_helpers_planner_helpers as planner_helpers
 from cli.agent_cli.providers import anthropic_claude_helpers_session_helpers as session_helpers
-from cli.agent_cli.providers import anthropic_claude_runtime_helpers as runtime_helpers
+from cli.agent_cli.providers import anthropic_claude_helpers_stateless as stateless_helpers
 from cli.agent_cli.providers import (
     anthropic_claude_session_runtime_normalization_helpers_runtime as normalization_helpers,
 )
@@ -28,22 +28,24 @@ from cli.agent_cli.providers.interaction_contract import ResolvedInteractionCont
 from cli.agent_cli.providers.planners_common import BasePlanner
 from cli.agent_cli.workspace_context import render_workspace_reference_context_item_message
 
-DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6"
-DEFAULT_MAX_TOKENS = 4096
-ANTHROPIC_TURN_ENGINE_MAX_ROUNDS: int | None = None
-CLAUDE_PROVIDER_ALIASES = frozenset({"anthropic", "claude", "claude_code", "anthropic_claude"})
+runtime_helpers = stateless_helpers.runtime_helpers
+DEFAULT_CLAUDE_MODEL = stateless_helpers.DEFAULT_CLAUDE_MODEL
+DEFAULT_MAX_TOKENS = stateless_helpers.DEFAULT_MAX_TOKENS
+ANTHROPIC_TURN_ENGINE_MAX_ROUNDS = stateless_helpers.ANTHROPIC_TURN_ENGINE_MAX_ROUNDS
+CLAUDE_PROVIDER_ALIASES = stateless_helpers.CLAUDE_PROVIDER_ALIASES
 
 PlannerToolExecutor = Callable[[str], tuple[str, list[ToolEvent]]]
 PluginManagerFactory = Callable[[], PluginManager | None]
 
-_log_anthropic_request = runtime_helpers.log_anthropic_request
-_log_anthropic_response = runtime_helpers.log_anthropic_response
-_message_text = runtime_helpers.message_text
-ClaudeConfigPaths = runtime_helpers.ClaudeConfigPaths
-
-
-def claude_config_paths(home_dir: Path | None = None) -> ClaudeConfigPaths:
-    return runtime_helpers.claude_config_paths(home_dir)
+_log_anthropic_request = stateless_helpers.log_anthropic_request
+_log_anthropic_response = stateless_helpers.log_anthropic_response
+_message_text = stateless_helpers.message_text
+ClaudeConfigPaths = stateless_helpers.ClaudeConfigPaths
+claude_config_paths = stateless_helpers.claude_config_paths
+_function_fields_from_spec = stateless_helpers.function_fields_from_spec
+anthropic_tool_specs = stateless_helpers.anthropic_tool_specs
+_quote_arg = stateless_helpers.quote_arg
+_command_for_tool_call = stateless_helpers.command_for_tool_call
 
 
 def should_use_claude_provider(
@@ -53,7 +55,7 @@ def should_use_claude_provider(
     configured_model: str = "",
     selected_config: ProviderConfig | None = None,
 ) -> bool:
-    return runtime_helpers.should_use_claude_provider(
+    return stateless_helpers.should_use_claude_provider(
         env_mapping=env_mapping,
         configured_provider=configured_provider,
         configured_model=configured_model,
@@ -70,7 +72,7 @@ def load_claude_provider_config(
     fallback_model: str = "",
     fallback_base_url: str = "",
 ) -> ProviderConfig | None:
-    return runtime_helpers.load_claude_provider_config(
+    return stateless_helpers.load_claude_provider_config(
         env_mapping=env_mapping,
         home_dir=home_dir,
         config_paths=config_paths,
@@ -81,48 +83,11 @@ def load_claude_provider_config(
     )
 
 
-def _function_fields_from_spec(spec: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
-    return runtime_helpers.function_fields_from_spec(spec)
-
-
-def anthropic_tool_specs(
-    config: ProviderConfig,
-    host_platform: HostPlatform,
-    *,
-    plugin_manager_factory: PluginManagerFactory | None = None,
-) -> list[dict[str, Any]]:
-    return runtime_helpers.anthropic_tool_specs(
-        config,
-        host_platform,
-        plugin_manager_factory=plugin_manager_factory,
-    )
-
-
-def _quote_arg(value: Any) -> str:
-    return runtime_helpers.quote_arg(value)
-
-
-def _command_for_tool_call(
-    name: str,
-    arguments: dict[str, Any],
-    host_platform: HostPlatform,
-    *,
-    plugin_manager_factory: PluginManagerFactory | None = None,
-) -> str | None:
-    return runtime_helpers.command_for_tool_call(
-        name,
-        arguments,
-        host_platform,
-        plugin_manager_factory=plugin_manager_factory,
-    )
-
-
 def build_anthropic_client(config: ProviderConfig) -> Any:
     return build_client_helpers.build_anthropic_client(config)
 
 
-def _content_block_dict(block: Any) -> dict[str, Any]:
-    return runtime_helpers.content_block_dict(block)
+_content_block_dict = stateless_helpers.content_block_dict
 
 
 def _resolved_anthropic_interaction_contract(config: ProviderConfig) -> ResolvedInteractionContract:
@@ -130,21 +95,7 @@ def _resolved_anthropic_interaction_contract(config: ProviderConfig) -> Resolved
 
 
 def _pending_tool_use_ids_from_messages(messages: list[dict[str, Any]]) -> set[str]:
-    if not messages:
-        return set()
-    last_message = messages[-1]
-    if str(last_message.get("role") or "").strip() != "assistant":
-        return set()
-    ids: set[str] = set()
-    for block in list(last_message.get("content") or []):
-        if not isinstance(block, dict):
-            continue
-        if str(block.get("type") or "").strip() != "tool_use":
-            continue
-        call_id = str(block.get("id") or "").strip()
-        if call_id:
-            ids.add(call_id)
-    return ids
+    return stateless_helpers.pending_tool_use_ids_from_messages(messages)
 
 
 @dataclass

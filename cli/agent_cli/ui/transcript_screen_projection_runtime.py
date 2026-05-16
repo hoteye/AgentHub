@@ -1,6 +1,45 @@
 from __future__ import annotations
 
 from cli.agent_cli.ui.transcript_history import TranscriptEntry
+from cli.agent_cli.ui.transcript_structured_access import (
+    first_summary_line as structured_first_summary_line,
+)
+from cli.agent_cli.ui.transcript_structured_access import (
+    payload_code as structured_payload_code,
+)
+from cli.agent_cli.ui.transcript_structured_access import (
+    payload_command_text as structured_payload_command_text,
+)
+from cli.agent_cli.ui.transcript_structured_access import (
+    payload_exploration_details as structured_payload_exploration_details,
+)
+from cli.agent_cli.ui.transcript_structured_access import (
+    payload_group_key as structured_payload_group_key,
+)
+from cli.agent_cli.ui.transcript_structured_access import (
+    payload_input as structured_payload_input,
+)
+from cli.agent_cli.ui.transcript_structured_access import (
+    payload_metadata as structured_payload_metadata,
+)
+from cli.agent_cli.ui.transcript_structured_access import (
+    payload_name as structured_payload_name,
+)
+from cli.agent_cli.ui.transcript_structured_access import (
+    payload_output as structured_payload_output,
+)
+from cli.agent_cli.ui.transcript_structured_access import (
+    payload_state as structured_payload_state,
+)
+from cli.agent_cli.ui.transcript_structured_access import (
+    payload_summary as structured_payload_summary,
+)
+from cli.agent_cli.ui.transcript_structured_access import (
+    payload_title as structured_payload_title,
+)
+from cli.agent_cli.ui.transcript_structured_access import (
+    structured_payload,
+)
 
 
 def entries_for_screen(
@@ -54,6 +93,30 @@ def _is_collapsible_tool_noise(entry: TranscriptEntry) -> bool:
         return False
     if str(entry.status or "").strip().lower() == "error":
         return False
+    payload = structured_payload(entry)
+    if payload is not None:
+        state = structured_payload_state(payload)
+        if state in {"error", "failed"}:
+            return False
+        payload_kind = structured_payload_name(payload)
+        code = structured_payload_code(payload)
+        if payload_kind == "todo_list":
+            return False
+        if code.startswith("approval.") or code == "patch.apply":
+            return False
+        semantic_text = " ".join(
+            part
+            for part in (
+                payload_kind,
+                code,
+                structured_payload_title(payload).lower(),
+                str(structured_payload_metadata(payload).get("tool_name") or "").strip().lower(),
+            )
+            if part
+        )
+        if "approval" in semantic_text or "patch" in semantic_text:
+            return False
+        return True
     header = _header_text(entry).lower()
     if not header:
         return False
@@ -71,6 +134,9 @@ def _is_collapsible_tool_noise(entry: TranscriptEntry) -> bool:
 def _collapsible_tool_group_key(entry: TranscriptEntry) -> str | None:
     if not _is_collapsible_tool_noise(entry):
         return None
+    structured_key = _structured_group_key(entry)
+    if structured_key:
+        return structured_key
     if entry.layer == "web":
         return _web_group_key(entry)
     if entry.render_mode == "tool_mcp":
@@ -78,7 +144,10 @@ def _collapsible_tool_group_key(entry: TranscriptEntry) -> str | None:
     if entry.render_mode == "tool_command":
         return _command_group_key(entry)
     if entry.exploration_details:
-        exploration_kinds = {str(kind or "").strip().lower() for kind, _subject in list(entry.exploration_details or [])}
+        exploration_kinds = {
+            str(kind or "").strip().lower()
+            for kind, _subject in list(entry.exploration_details or [])
+        }
         if len(exploration_kinds) == 1:
             return next(iter(exploration_kinds))
     header = _header_text(entry).lower()
@@ -106,10 +175,16 @@ def _summarize_tool_group(entries: list[TranscriptEntry], *, group_key: str) -> 
             lines.append(f"    +{count - 1} more")
     elif count > 1:
         lines.append(f"  └ +{count - 1} more")
-    child_ids = tuple(str(entry.entry_id or "").strip() for entry in entries if str(entry.entry_id or "").strip())
+    child_ids = tuple(
+        str(entry.entry_id or "").strip() for entry in entries if str(entry.entry_id or "").strip()
+    )
     group_start = child_ids[0] if child_ids else "start"
     group_end = child_ids[-1] if child_ids else "end"
-    search_text = "\n".join(str(entry.search_text or _summary_detail_text(entry)).strip() for entry in entries if str(entry.search_text or _summary_detail_text(entry)).strip())
+    search_text = "\n".join(
+        str(entry.search_text or _summary_detail_text(entry)).strip()
+        for entry in entries
+        if str(entry.search_text or _summary_detail_text(entry)).strip()
+    )
     return TranscriptEntry(
         kind="activity",
         layer=str(entries[0].layer or "tool"),
@@ -124,6 +199,26 @@ def _summarize_tool_group(entries: list[TranscriptEntry], *, group_key: str) -> 
 
 
 def _web_group_key(entry: TranscriptEntry) -> str:
+    payload = structured_payload(entry)
+    if payload is not None:
+        name = structured_payload_name(payload)
+        code = structured_payload_code(payload)
+        input_payload = structured_payload_input(payload)
+        title = structured_payload_title(payload).lower()
+        backend = str(input_payload.get("backend") or "").strip().lower()
+        if (
+            bool(input_payload.get("provider_native"))
+            or backend == "native"
+            or title.startswith("native web search")
+        ):
+            return "native_web_search"
+        if backend == "local" or title.startswith("local web search"):
+            return "local_web_search"
+        if "find" in {name, code} or name.endswith(".find") or code.endswith(".find"):
+            return "web_find"
+        if "search" in name or "search" in code:
+            return "web_search"
+        return "web"
     header = _header_text(entry).lower()
     if "native web search" in header:
         return "native_web_search"
@@ -152,6 +247,47 @@ def _command_group_key(entry: TranscriptEntry) -> str:
     return "command"
 
 
+def _structured_group_key(entry: TranscriptEntry) -> str | None:
+    payload = structured_payload(entry)
+    if payload is None:
+        return None
+    explicit_group_key = structured_payload_group_key(payload)
+    if explicit_group_key:
+        return explicit_group_key
+    name = structured_payload_name(payload)
+    code = structured_payload_code(payload)
+    if entry.layer == "web" or code.startswith("web.") or name.startswith("web."):
+        return _web_group_key(entry)
+    if name == "mcp_tool_call":
+        return "tool_call"
+    if name == "command_execution":
+        return _command_group_key(entry)
+    if name == "command_exploration":
+        exploration_kinds = {
+            str(detail.get("kind") or "").strip().lower()
+            for detail in structured_payload_exploration_details(payload)
+            if str(detail.get("kind") or "").strip()
+        }
+        if len(exploration_kinds) == 1:
+            return next(iter(exploration_kinds))
+        return "tool"
+    if name in {"view_image", "input_image_output"} or code == "image.view":
+        return "image"
+    if name in {"view_document", "document_output"}:
+        return "document"
+    if code in {"dir.list", "file.list"}:
+        return "list"
+    if code in {"dir.search", "file.search"}:
+        return "search"
+    if code == "file.read":
+        return "read"
+    if code == "command.run":
+        return "tool"
+    if "background" in name or "worker" in name or "workflow" in name or "followup" in name:
+        return "background"
+    return None
+
+
 def _category_label(category: str, count: int) -> str:
     if category == "read":
         return f"Read {count} file{'s' if count != 1 else ''}"
@@ -163,6 +299,8 @@ def _category_label(category: str, count: int) -> str:
         return f"Ran {count} inspection command{'s' if count != 1 else ''}"
     if category == "image":
         return f"Viewed {count} image{'s' if count != 1 else ''}"
+    if category == "document":
+        return f"Viewed {count} document{'s' if count != 1 else ''}"
     if category == "background":
         return f"Background activity ({count} update{'s' if count != 1 else ''})"
     if category == "web":
@@ -194,6 +332,9 @@ def _group_status(entries: list[TranscriptEntry]) -> str:
 
 
 def _summary_detail_text(entry: TranscriptEntry) -> str:
+    structured_summary = _structured_summary_text(entry)
+    if structured_summary:
+        return structured_summary
     if entry.render_mode == "web_search" and len(entry.lines) > 1:
         branch = str(entry.lines[1] or "").strip()
         if branch.startswith("└ "):
@@ -217,8 +358,77 @@ def _header_text(entry: TranscriptEntry) -> str:
 
 
 def _command_text(entry: TranscriptEntry) -> str:
+    structured_command = _structured_command_text(entry)
+    if structured_command:
+        return structured_command
     header = _header_text(entry)
     for prefix in ("• Running ", "• Ran "):
         if header.startswith(prefix):
             return header[len(prefix) :].strip()
     return header
+
+
+def _structured_command_text(entry: TranscriptEntry) -> str:
+    return structured_payload_command_text(structured_payload(entry))
+
+
+def _structured_summary_text(entry: TranscriptEntry) -> str:
+    payload = structured_payload(entry)
+    if payload is None:
+        return ""
+    explicit_summary = structured_payload_summary(payload)
+    if explicit_summary:
+        return explicit_summary
+    name = structured_payload_name(payload)
+    if name == "command_execution":
+        command_text = structured_payload_command_text(payload)
+        if not command_text:
+            return ""
+        state = structured_payload_state(payload)
+        prefix = "Ran" if state in {"completed", "error"} else "Running"
+        return f"{prefix} {structured_first_summary_line(command_text)}".strip()
+    if name == "command_exploration":
+        details = structured_payload_exploration_details(payload)
+        if not details:
+            return ""
+        kind = str(details[0].get("kind") or "").strip()
+        subject = str(details[0].get("subject") or "").strip()
+        label = _exploration_kind_label(kind)
+        return f"{label} {structured_first_summary_line(subject)}".strip()
+    if name == "mcp_tool_call":
+        invocation = str(structured_payload_input(payload).get("invocation") or "").strip()
+        return invocation or structured_payload_title(payload)
+    if name in {"view_image", "input_image_output", "view_document", "document_output"}:
+        title = structured_payload_title(payload)
+        subject = str(structured_payload_input(payload).get("subject") or "").strip()
+        return " ".join(structured_first_summary_line(part) for part in (title, subject) if part)
+    if entry.layer == "web" or structured_payload_code(payload).startswith("web."):
+        query_text = str(structured_payload_input(payload).get("query") or "").strip()
+        if query_text:
+            return query_text
+        output_text = structured_payload_output(payload)
+        if output_text:
+            return structured_first_summary_line(output_text)
+        title = structured_payload_title(payload)
+        if title:
+            return title
+    title = structured_payload_title(payload)
+    if title:
+        return title
+    output_text = structured_payload_output(payload)
+    if output_text:
+        return structured_first_summary_line(output_text)
+    return ""
+
+
+def _exploration_kind_label(kind: str) -> str:
+    normalized = str(kind or "").strip().lower()
+    if normalized == "read":
+        return "Read"
+    if normalized == "search":
+        return "Search"
+    if normalized == "list":
+        return "List"
+    if normalized:
+        return normalized.capitalize()
+    return "Tool"

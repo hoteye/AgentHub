@@ -18,6 +18,7 @@ from cli.agent_cli.app_runtime_flow_request_user_input_helpers import (
 )
 from cli.agent_cli.models import PromptAttachment
 from cli.agent_cli.slash_parser import parse_slash_invocation
+from cli.agent_cli.startup_debug import startup_log
 from cli.agent_cli.ui import (
     enqueue_runtime_request,
     request_worker_loop,
@@ -125,6 +126,12 @@ class AppRuntimeFlowMixin:
         return self._t(key, **kwargs)
 
     def _begin_shutdown(self) -> None:
+        startup_log(
+            "app.begin_shutdown "
+            f"already={self._shutdown_initiated} "
+            f"exit_requested={self._exit_requested} "
+            f"busy={getattr(self, '_busy', False)}"
+        )
         self._close_preview_pane_on_shutdown()
         if self._shutdown_initiated:
             return
@@ -350,6 +357,7 @@ class AppRuntimeFlowMixin:
     def _handle_runtime_response(self, response: object) -> None:
         payload = self._exit_request_payload(response)
         if payload is not None:
+            startup_log("app.handle_runtime_response.exit_request")
             exit_projection = projection_helpers_runtime.exit_request_projection(payload)
             self._exit_requested = True
             self._exit_thread_id = exit_projection.thread_id
@@ -358,6 +366,8 @@ class AppRuntimeFlowMixin:
             self.call_after_refresh(self._exit_after_command)
             return
         if pure_helpers_runtime.close_tab_request_payload(response) is not None:
+            tab_count = len(getattr(getattr(self, "_tab_manager", None), "_tabs", {}) or {})
+            startup_log(f"app.handle_runtime_response.close_tab_request tabs={tab_count}")
             if self._tab_manager is not None and len(self._tab_manager._tabs) > 1:
                 self.call_after_refresh(self.action_close_tab)
             else:
@@ -440,6 +450,11 @@ class AppRuntimeFlowMixin:
         return self._t("system.preview_pane.closed_status")
 
     def _exit_after_command(self) -> None:
+        startup_log(
+            "app.exit_after_command "
+            f"shutdown={self._shutdown_initiated} "
+            f"exit_requested={self._exit_requested}"
+        )
         if self._shutdown_initiated:
             return
         self._begin_shutdown()

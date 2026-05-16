@@ -16,6 +16,7 @@ from cli.agent_cli.runtime_core.command_usage import (
     _command_usage_text,
 )
 from cli.agent_cli.slash_commands import slash_command_help_text
+from cli.agent_cli.slash_commands_i18n_runtime import localized_message
 from cli.agent_cli.slash_parser import SlashInvocation
 
 
@@ -40,40 +41,61 @@ def handle_help_command(
         include_advanced=include_advanced,
         locale=getattr(runtime, "presentation_locale", None),
     )
-    text += shortcut_help_text()
+    text += shortcut_help_text(locale=getattr(runtime, "presentation_locale", None))
     return (text, [])
 
 
-def shortcut_help_text() -> str:
+def shortcut_help_text(*, locale: str | None = None) -> str:
     from cli.agent_cli.app_bindings_runtime import APP_BINDINGS
 
-    _ACTION_LABELS = {
-        "ctrl_c": "Quit",
-        "focused_undo_or_noop": "Undo",
-        "clear_logs": "Clear screen",
-        "toggle_transcript": "Toggle transcript mode",
-        "submit_prompt": "Send prompt",
-        "refresh_state": "Show provider status",
-        "show_tools": "Show tools",
-        "toggle_latest_web_item": "Toggle web details",
-        "paste_prompt": "Paste from clipboard",
-        "new_tab": "New tab",
-        "fork_tab": "Fork current tab",
-        "close_tab": "Close current tab",
-        "next_tab": "Switch to next tab",
-        "prev_tab": "Switch to previous tab",
-        "split_open": "Split pane open",
-        "split_close": "Split pane close",
+    action_label_keys = {
+        "ctrl_c": ("help.shortcuts.action.quit", "Quit"),
+        "focused_undo_or_noop": ("help.shortcuts.action.undo", "Undo"),
+        "clear_logs": ("help.shortcuts.action.clear_screen", "Clear screen"),
+        "toggle_transcript": (
+            "help.shortcuts.action.toggle_transcript",
+            "Toggle transcript mode",
+        ),
+        "submit_prompt": ("help.shortcuts.action.send_prompt", "Send prompt"),
+        "refresh_state": (
+            "help.shortcuts.action.show_provider_status",
+            "Show provider status",
+        ),
+        "show_tools": ("help.shortcuts.action.show_tools", "Show tools"),
+        "toggle_latest_web_item": (
+            "help.shortcuts.action.toggle_web_details",
+            "Toggle web details",
+        ),
+        "paste_prompt": (
+            "help.shortcuts.action.paste_from_clipboard",
+            "Paste from clipboard",
+        ),
+        "new_tab": ("help.shortcuts.action.new_tab", "New tab"),
+        "fork_tab": ("help.shortcuts.action.fork_current_tab", "Fork current tab"),
+        "close_tab": ("help.shortcuts.action.close_current_tab", "Close current tab"),
+        "next_tab": ("help.shortcuts.action.switch_to_next_tab", "Switch to next tab"),
+        "prev_tab": (
+            "help.shortcuts.action.switch_to_previous_tab",
+            "Switch to previous tab",
+        ),
+        "split_open": ("help.shortcuts.action.split_pane_open", "Split pane open"),
+        "split_close": ("help.shortcuts.action.split_pane_close", "Split pane close"),
     }
     shortcuts = []
     for b in APP_BINDINGS:
         key = b[0] if isinstance(b, tuple) else getattr(b, "key", "")
         action = b[1] if isinstance(b, tuple) and len(b) > 1 else getattr(b, "action", "")
-        label = _ACTION_LABELS.get(action, action)
+        label_key, fallback = action_label_keys.get(action, ("", action))
+        label = localized_message(label_key, fallback, locale=locale) if label_key else fallback
         if key:
             shortcuts.append(f"  {key} - {label}")
     if shortcuts:
-        return "\n\nkeyboard shortcuts:\n" + "\n".join(shortcuts)
+        heading = localized_message(
+            "help.shortcuts.heading",
+            "keyboard shortcuts:",
+            locale=locale,
+        )
+        return f"\n\n{heading}\n" + "\n".join(shortcuts)
     return ""
 
 

@@ -40,8 +40,6 @@ APP_BINDINGS = [
     Binding("ctrl+w", "close_tab", "Close Tab", show=False),
     Binding("ctrl+tab", "next_tab", "Next Tab", show=False, priority=True),
     Binding("ctrl+shift+tab", "prev_tab", "Prev Tab", show=False, priority=True),
-    Binding("ctrl+right", "next_tab", "Next Tab", show=False, priority=True),
-    Binding("ctrl+left", "prev_tab", "Prev Tab", show=False, priority=True),
     Binding("f2", "split_open", "Split Open", show=False),
     Binding("f3", "split_close", "Split Close", show=False),
 ]

@@ -237,7 +237,7 @@ def _restore_transcript_scroll(manager: Any, log: Any, session: TabSession) -> N
     if callable(call_after_refresh):
         call_after_refresh(_restore_if_active)
     set_timer = getattr(manager._app, "set_timer", None)
-    if callable(set_timer):
+    if callable(set_timer) and bool(getattr(manager._app, "_running", False)):
         set_timer(0.3, _restore_if_active)
 
 

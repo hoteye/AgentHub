@@ -114,11 +114,23 @@ class ComposerEditMixin:
     def move_cursor_right(self, *, extend: bool = False) -> None:
         composer_edit_runtime.move_cursor_right(self, extend=extend)
 
-    def move_cursor_word_left(self) -> None:
-        composer_edit_runtime.move_cursor_word_left(self)
+    def move_cursor_word_left(self, *, extend: bool = False) -> None:
+        composer_edit_runtime.move_cursor_word_left(self, extend=extend)
 
-    def move_cursor_word_right(self) -> None:
-        composer_edit_runtime.move_cursor_word_right(self)
+    def move_cursor_word_right(self, *, extend: bool = False) -> None:
+        composer_edit_runtime.move_cursor_word_right(self, extend=extend)
+
+    def move_cursor_logical_line_end(
+        self,
+        *,
+        extend: bool = False,
+        move_to_next_line_when_at_end: bool = False,
+    ) -> None:
+        composer_edit_runtime.move_cursor_logical_line_end(
+            self,
+            extend=extend,
+            move_to_next_line_when_at_end=move_to_next_line_when_at_end,
+        )
 
     def move_cursor_home(self, *, extend: bool = False) -> None:
         composer_edit_runtime.move_cursor_home(self, extend=extend)
@@ -146,6 +158,21 @@ class ComposerEditMixin:
 
     def delete_selection(self) -> bool:
         return composer_edit_runtime.delete_selection(self)
+
+    def delete_backward_word(self) -> None:
+        composer_edit_runtime.delete_backward_word(self)
+
+    def delete_forward_word(self) -> None:
+        composer_edit_runtime.delete_forward_word(self)
+
+    def kill_line_start(self) -> None:
+        composer_edit_runtime.kill_line_start(self)
+
+    def kill_line_end(self) -> None:
+        composer_edit_runtime.kill_line_end(self)
+
+    def yank_kill_buffer(self) -> None:
+        composer_edit_runtime.yank_kill_buffer(self)
 
     def undo(self) -> None:
         composer_edit_runtime.undo(self)
@@ -198,6 +225,9 @@ class ComposerEditMixin:
 
     def _expand_bounds_to_atomic_tokens(self, start: int, end: int) -> tuple[int, int]:
         return composer_edit_runtime.expand_bounds_to_atomic_tokens(self, start, end)
+
+    def _kill_range(self, start: int, end: int) -> bool:
+        return composer_edit_runtime.kill_range(self, start, end)
 
     def _snapshot(self) -> ComposerSnapshot:
         return composer_edit_runtime.snapshot(self)

@@ -12,11 +12,9 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
-import subprocess
-import zipfile
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 
 try:
     import docx2txt
@@ -24,12 +22,18 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency in some en
     docx2txt = None
 from docx import Document
 
+from shared.document_tools.document_ingest_archive import (
+    convert_legacy_office,
+    extract_7z_safe,
+    extract_zip_safe,
+)
 from shared.document_tools.document_ingest_markdown import render_markdown as _render_markdown_impl
 from shared.document_tools.document_ingest_spreadsheets import (
     parse_xls as _parse_xls_impl,
+)
+from shared.document_tools.document_ingest_spreadsheets import (
     parse_xlsx as _parse_xlsx_impl,
 )
-from shared.document_tools.platform_paths import find_soffice_executable
 
 SUPPORTED_SUFFIXES = {".zip", ".7z", ".doc", ".docx", ".pdf", ".xls", ".xlsx"}
 PARSEABLE_SUFFIXES = {".doc", ".docx", ".pdf", ".xls", ".xlsx"}
@@ -46,117 +50,6 @@ def _truncate(text: str, limit: int = 160) -> str:
     return text[: limit - 3] + "..."
 
 
-def _unique_output_dir(root: Path, seed: str) -> Path:
-    base = root / _safe_name(seed)
-    if not base.exists():
-        base.mkdir(parents=True, exist_ok=True)
-        return base
-    index = 2
-    while True:
-        candidate = root / f"{_safe_name(seed)}_{index}"
-        if not candidate.exists():
-            candidate.mkdir(parents=True, exist_ok=True)
-            return candidate
-        index += 1
-
-
-def extract_zip_safe(path: Path, extract_root: Path) -> List[Path]:
-    output_dir = _unique_output_dir(extract_root, path.stem)
-    extracted: List[Path] = []
-    with zipfile.ZipFile(path) as archive:
-        for info in archive.infolist():
-            if info.is_dir():
-                continue
-            member_path = Path(info.filename)
-            if member_path.is_absolute() or ".." in member_path.parts:
-                continue
-            target = output_dir / member_path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with archive.open(info) as source, open(target, "wb") as sink:
-                sink.write(source.read())
-            extracted.append(target)
-    return extracted
-
-
-def _find_7z_executable() -> Optional[str]:
-    for name in ("7z", "7z.exe", "7za", "7za.exe"):
-        resolved = shutil.which(name)
-        if resolved:
-            return resolved
-    candidates = [
-        Path(r"C:\Program Files\7-Zip\7z.exe"),
-        Path(r"C:\Program Files (x86)\7-Zip\7z.exe"),
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return str(candidate)
-    return None
-
-
-def extract_7z_safe(path: Path, extract_root: Path) -> List[Path]:
-    seven_zip = _find_7z_executable()
-    if not seven_zip:
-        raise RuntimeError("7z executable not found")
-    output_dir = _unique_output_dir(extract_root, path.stem)
-    result = subprocess.run(
-        [
-            seven_zip,
-            "x",
-            str(path),
-            f"-o{output_dir}",
-            "-y",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"7z 解压失败: {path.name}; stdout={result.stdout.strip()}; stderr={result.stderr.strip()}"
-        )
-    return [item for item in output_dir.rglob("*") if item.is_file()]
-
-
-def _run_soffice_convert(path: Path, outdir: Path, target_ext: str) -> Path:
-    outdir.mkdir(parents=True, exist_ok=True)
-    soffice = find_soffice_executable()
-    if not soffice:
-        raise RuntimeError("LibreOffice soffice executable not found")
-    result = subprocess.run(
-        [
-            soffice,
-            "--headless",
-            "--convert-to",
-            target_ext.lstrip("."),
-            "--outdir",
-            str(outdir),
-            str(path),
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"LibreOffice 转换失败: {path.name}; stdout={result.stdout.strip()}; stderr={result.stderr.strip()}"
-        )
-    converted = outdir / f"{path.stem}{target_ext}"
-    if not converted.exists():
-        generated = sorted(outdir.glob(f"*{target_ext}"))
-        if len(generated) == 1:
-            return generated[0]
-        raise FileNotFoundError(
-            f"转换输出不存在: {converted}; stdout={result.stdout.strip()}; stderr={result.stderr.strip()}"
-        )
-    return converted
-
-
-def convert_legacy_office(path: Path, convert_root: Path) -> Path:
-    suffix = path.suffix.lower()
-    outdir = _unique_output_dir(convert_root, path.stem)
-    if suffix == ".doc":
-        return _run_soffice_convert(path, outdir, ".docx")
-    return path
-
-
 def _extract_docx_title(document: Document, paragraphs: Sequence[str], path: Path) -> str:
     for paragraph in document.paragraphs:
         text = re.sub(r"\s+", " ", paragraph.text or "").strip()
@@ -171,7 +64,7 @@ def _extract_docx_title(document: Document, paragraphs: Sequence[str], path: Pat
     return path.stem
 
 
-def parse_docx(path: Path) -> Dict:
+def parse_docx(path: Path) -> dict:
     document = Document(str(path))
     paragraphs = [
         re.sub(r"\s+", " ", paragraph.text or "").strip()
@@ -205,21 +98,21 @@ def parse_docx(path: Path) -> Dict:
     }
 
 
-def parse_xlsx(path: Path) -> Dict:
+def parse_xlsx(path: Path) -> dict:
     return _parse_xlsx_impl(path)
 
 
-def parse_xls(path: Path) -> Dict:
+def parse_xls(path: Path) -> dict:
     return _parse_xls_impl(path)
 
 
-def parse_pdf(path: Path) -> Dict:
+def parse_pdf(path: Path) -> dict:
     from pypdf import PdfReader
 
     reader = PdfReader(str(path))
     metadata = reader.metadata or {}
     pages = []
-    full_text_parts: List[str] = []
+    full_text_parts: list[str] = []
     for index, page in enumerate(reader.pages, start=1):
         text = re.sub(r"\s+\n", "\n", page.extract_text() or "")
         text = re.sub(r"\n{3,}", "\n\n", text).strip()
@@ -231,7 +124,10 @@ def parse_pdf(path: Path) -> Dict:
         )
         if text:
             full_text_parts.append(text)
-    title = str(getattr(metadata, "title", "") or metadata.get("/Title") or path.stem).strip() or path.stem
+    title = (
+        str(getattr(metadata, "title", "") or metadata.get("/Title") or path.stem).strip()
+        or path.stem
+    )
     return {
         "title": title,
         "page_count": len(reader.pages),
@@ -239,12 +135,14 @@ def parse_pdf(path: Path) -> Dict:
         "full_text_preview": _truncate("\n\n".join(full_text_parts), 4000),
         "metadata": {
             "author": str(getattr(metadata, "author", "") or metadata.get("/Author") or "").strip(),
-            "subject": str(getattr(metadata, "subject", "") or metadata.get("/Subject") or "").strip(),
+            "subject": str(
+                getattr(metadata, "subject", "") or metadata.get("/Subject") or ""
+            ).strip(),
         },
     }
 
 
-def render_markdown(file_type: str, content: Dict, *, title: str) -> str:
+def render_markdown(file_type: str, content: dict, *, title: str) -> str:
     return _render_markdown_impl(file_type=file_type, content=content, title=title)
 
 
@@ -255,7 +153,7 @@ def _write_markdown_artifact(markdown_root: Path, source_name: str, markdown_tex
     return str(output_path)
 
 
-def _build_merge_metadata(file_type: str, content: Dict, *, source_name: str) -> Dict[str, Any]:
+def _build_merge_metadata(file_type: str, content: dict, *, source_name: str) -> dict[str, Any]:
     return {
         "source_name": source_name,
         "file_type": file_type,
@@ -274,7 +172,9 @@ def _build_merge_metadata(file_type: str, content: Dict, *, source_name: str) ->
     }
 
 
-def _write_json_artifact(output_root: Path, source_name: str, payload: Dict[str, Any], *, suffix: str) -> str:
+def _write_json_artifact(
+    output_root: Path, source_name: str, payload: dict[str, Any], *, suffix: str
+) -> str:
     output_root.mkdir(parents=True, exist_ok=True)
     output_path = output_root / f"{_safe_name(Path(source_name).stem)}{suffix}"
     output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -285,14 +185,16 @@ def _flatten_parseable_files(
     paths: Sequence[Path],
     extract_root: Path,
     convert_root: Path,
-    errors: Optional[List[Dict]] = None,
-) -> List[Path]:
-    resolved: List[Path] = []
+    errors: list[dict] | None = None,
+) -> list[Path]:
+    resolved: list[Path] = []
     for path in paths:
         suffix = path.suffix.lower()
         if suffix == ".zip":
             extracted = extract_zip_safe(path, extract_root)
-            resolved.extend(_flatten_parseable_files(extracted, extract_root, convert_root, errors=errors))
+            resolved.extend(
+                _flatten_parseable_files(extracted, extract_root, convert_root, errors=errors)
+            )
             continue
         if suffix == ".7z":
             try:
@@ -301,7 +203,9 @@ def _flatten_parseable_files(
                 if errors is not None:
                     errors.append({"path": str(path), "stage": "extract", "error": str(exc)})
                 continue
-            resolved.extend(_flatten_parseable_files(extracted, extract_root, convert_root, errors=errors))
+            resolved.extend(
+                _flatten_parseable_files(extracted, extract_root, convert_root, errors=errors)
+            )
             continue
         if suffix not in PARSEABLE_SUFFIXES:
             continue
@@ -316,7 +220,7 @@ def _flatten_parseable_files(
     return resolved
 
 
-def summarize_document_content(file_type: str, content: Dict) -> str:
+def summarize_document_content(file_type: str, content: dict) -> str:
     if file_type == "docx":
         title = content.get("title") or ""
         paragraph_preview = content.get("paragraph_preview") or []
@@ -339,7 +243,7 @@ def summarize_document_content(file_type: str, content: Dict) -> str:
     return ""
 
 
-def ingest_document(path: Path, runtime_root: Optional[Path] = None) -> Dict:
+def ingest_document(path: Path, runtime_root: Path | None = None) -> dict:
     path = Path(path)
     runtime_root = runtime_root or (path.parent / ".document_ingest")
     extract_root = runtime_root / "extracted"
@@ -351,7 +255,7 @@ def ingest_document(path: Path, runtime_root: Optional[Path] = None) -> Dict:
     markdown_root.mkdir(parents=True, exist_ok=True)
     merge_metadata_root.mkdir(parents=True, exist_ok=True)
 
-    errors: List[Dict] = []
+    errors: list[dict] = []
     parse_targets = _flatten_parseable_files(
         [path],
         extract_root=extract_root,
@@ -415,12 +319,12 @@ def ingest_document(path: Path, runtime_root: Optional[Path] = None) -> Dict:
     }
 
 
-def ingest_documents(paths: Sequence[Path], runtime_root: Path) -> List[Dict]:
+def ingest_documents(paths: Sequence[Path], runtime_root: Path) -> list[dict]:
     result = []
     for path in paths:
         result.append(ingest_document(Path(path), runtime_root=runtime_root))
     return result
 
 
-def dumps_json(data: Dict) -> str:
+def dumps_json(data: dict) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2)

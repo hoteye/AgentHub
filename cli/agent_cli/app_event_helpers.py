@@ -21,6 +21,10 @@ from cli.agent_cli.app_event_mouse_runtime import (
 from cli.agent_cli.debug_timeline import log_timeline, timeline_debug_enabled
 from cli.agent_cli.startup_debug import startup_log
 from cli.agent_cli.ui.status_indicator import ANIMATION_INTERVAL_SECONDS
+from cli.agent_cli.ui.transcript_navigation_runtime import (
+    latest_expandable_entry_id,
+    toggle_entry_expansion,
+)
 
 
 def _start_tab_workers(mgr: Any) -> None:
@@ -237,31 +241,47 @@ def _has_active_keyboard_overlay(app: Any) -> bool:
 def _is_prompt_composer_key_candidate(event: Any) -> bool:
     if bool(getattr(event, "is_printable", False)) and str(getattr(event, "character", "") or ""):
         return True
-    key = str(getattr(event, "key", "") or "")
-    aliases = {
-        str(item or "") for item in (key, *(getattr(event, "aliases", []) or [])) if str(item or "")
-    }
+    from cli.agent_cli.ui.composer_runtime import normalized_key_aliases
+
+    aliases = normalized_key_aliases(event)
     return bool(
         aliases
         & {
             "alt+b",
+            "alt+backspace",
+            "alt+d",
+            "alt+delete",
             "alt+enter",
             "alt+f",
+            "alt+left",
+            "alt+right",
             "backspace",
             "ctrl+a",
+            "ctrl+alt+h",
             "ctrl+b",
+            "ctrl+backspace",
             "ctrl+d",
+            "ctrl+delete",
             "ctrl+e",
             "ctrl+f",
+            "ctrl+h",
             "ctrl+j",
+            "ctrl+k",
             "ctrl+left",
             "ctrl+m",
             "ctrl+n",
             "ctrl+p",
             "ctrl+right",
             "ctrl+shift+z",
+            "ctrl+shift+end",
+            "ctrl+shift+home",
+            "ctrl+shift+left",
+            "ctrl+shift+right",
+            "ctrl+end",
+            "ctrl+home",
             "ctrl+u",
             "ctrl+v",
+            "ctrl+w",
             "ctrl+x",
             "ctrl+y",
             "ctrl+z",
@@ -394,15 +414,15 @@ def on_prompt_composer_changed(app: Any) -> None:
 
 
 def action_toggle_latest_web_item(app: Any) -> None:
-    for entry in range(len(app._transcript_entries) - 1, -1, -1):
-        candidate = app._transcript_entries[entry]
-        if candidate.layer != "web" or not candidate.expanded_lines:
-            continue
-        candidate.expanded = not candidate.expanded
+    entry_id = latest_expandable_entry_id(app._transcript_entries)
+    if entry_id is None:
+        return
+    updated_entries, toggled = toggle_entry_expansion(app._transcript_entries, entry_id)
+    if toggled:
+        app._transcript_entries = updated_entries
         try:
             app._sync_transcript()
         except NoMatches:
             pass
         finally:
             app._focus_input()
-        return

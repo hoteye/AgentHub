@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
+
+from cli.agent_cli.runtime_core import (
+    provider_commands_auth_login_helpers_runtime_output as auth_login_output,
+)
 
 
 def handle_auth_login(
@@ -27,8 +32,6 @@ def _handle_auth_login_device_code(
     auth_mode = str(state.get("auth_mode") or "-")
     context = dict(state.get("context") or {})
     endpoints = dict(state.get("endpoints") or {})
-    build_auth_status_lines_fn = deps["build_auth_status_lines_fn"]
-    auth_command_hint_fn = deps["auth_command_hint_fn"]
     is_truthy_fn = deps["is_truthy_fn"]
     safe_int_fn = deps["safe_int_fn"]
 
@@ -39,21 +42,18 @@ def _handle_auth_login_device_code(
         token_endpoint = str(
             pending_metadata.get("token_endpoint") or endpoints.get("token_endpoint") or ""
         ).strip()
-        client_id = str(pending_metadata.get("client_id") or endpoints.get("client_id") or "").strip()
+        client_id = str(
+            pending_metadata.get("client_id") or endpoints.get("client_id") or ""
+        ).strip()
         if not device_code or not token_endpoint or not client_id:
-            lines = build_auth_status_lines_fn(
-                subcommand="login",
+            return auth_login_output.login_mode_result(
+                deps=deps,
                 provider_name=provider_name,
                 auth_mode=auth_mode,
                 auth_status="missing",
-                next_action=auth_command_hint_fn(
-                    "login",
-                    provider_name=provider_name,
-                    mode="device_code",
-                ),
+                mode="device_code",
+                extra_lines=["error_code=no_pending_device_flow"],
             )
-            lines.append("error_code=no_pending_device_flow")
-            return ("\n".join(lines), [])
         poll_result = dict(
             deps["poll_device_flow_fn"](
                 token_endpoint=token_endpoint,
@@ -77,75 +77,61 @@ def _handle_auth_login_device_code(
                 oauth_result=poll_result,
                 metadata=metadata,
             )
-            lines = build_auth_status_lines_fn(
-                subcommand="login",
+            return auth_login_output.provider_status_result(
+                deps=deps,
                 provider_name=provider_name,
                 auth_mode=auth_mode,
                 auth_status=deps["ensure_auth_session_status_fn"](
                     deps["auth_session_status_fn"](saved)
                 ),
-                next_action=auth_command_hint_fn("status", provider_name=provider_name),
+                extra_lines=[f"token_ref={token_ref}"],
             )
-            lines.append(f"token_ref={token_ref}")
-            return ("\n".join(lines), [])
         if poll_status in {"pending", "slow_down"}:
-            lines = build_auth_status_lines_fn(
-                subcommand="login",
+            return auth_login_output.login_mode_result(
+                deps=deps,
                 provider_name=provider_name,
                 auth_mode=auth_mode,
                 auth_status=poll_status,
-                next_action=auth_command_hint_fn(
-                    "login",
-                    provider_name=provider_name,
-                    mode="device_code",
-                    poll=True,
-                ),
+                mode="device_code",
+                extra_lines=[
+                    f"retry_after_seconds={safe_int_fn(poll_result.get('retry_after_seconds'), 0)}",
+                    f"error_code={str(poll_result.get('error_code') or poll_status)}",
+                ],
+                poll=True,
             )
-            lines.append(f"retry_after_seconds={safe_int_fn(poll_result.get('retry_after_seconds'), 0)}")
-            lines.append(f"error_code={str(poll_result.get('error_code') or poll_status)}")
-            return ("\n".join(lines), [])
         if poll_status == "expired":
-            lines = build_auth_status_lines_fn(
-                subcommand="login",
+            return auth_login_output.login_mode_result(
+                deps=deps,
                 provider_name=provider_name,
                 auth_mode=auth_mode,
                 auth_status="expired",
-                next_action=auth_command_hint_fn(
-                    "login",
-                    provider_name=provider_name,
-                    mode="device_code",
-                ),
+                mode="device_code",
+                extra_lines=[f"error_code={str(poll_result.get('error_code') or 'expired_token')}"],
             )
-            lines.append(f"error_code={str(poll_result.get('error_code') or 'expired_token')}")
-            return ("\n".join(lines), [])
-        lines = build_auth_status_lines_fn(
-            subcommand="login",
+        return auth_login_output.login_mode_result(
+            deps=deps,
             provider_name=provider_name,
             auth_mode=auth_mode,
             auth_status="error",
-            next_action=auth_command_hint_fn(
-                "login",
-                provider_name=provider_name,
-                mode="device_code",
-            ),
+            mode="device_code",
+            extra_lines=[
+                f"error_code={str(poll_result.get('error_code') or 'oauth_poll_error')}",
+                f"error_hint={str(poll_result.get('error_description') or '').strip()}",
+            ],
         )
-        lines.append(f"error_code={str(poll_result.get('error_code') or 'oauth_poll_error')}")
-        lines.append(f"error_hint={str(poll_result.get('error_description') or '').strip()}")
-        return ("\n".join(lines), [])
 
     device_endpoint = str(endpoints.get("device_authorization_endpoint") or "").strip()
     token_endpoint = str(endpoints.get("token_endpoint") or "").strip()
     client_id = str(endpoints.get("client_id") or "").strip()
     if not device_endpoint or not token_endpoint or not client_id:
-        lines = build_auth_status_lines_fn(
-            subcommand="login",
+        return auth_login_output.auth_result(
+            deps=deps,
             provider_name=provider_name,
             auth_mode=auth_mode,
             auth_status="error",
             next_action="ensure client_id/token_endpoint/device_authorization_endpoint are configured",
+            extra_lines=["error_code=missing_device_flow_endpoints"],
         )
-        lines.append("error_code=missing_device_flow_endpoints")
-        return ("\n".join(lines), [])
     start_result = dict(
         deps["start_device_flow_fn"](
             device_authorization_endpoint=device_endpoint,
@@ -155,20 +141,17 @@ def _handle_auth_login_device_code(
         or {}
     )
     if str(start_result.get("status") or "").strip() != "ok":
-        lines = build_auth_status_lines_fn(
-            subcommand="login",
+        return auth_login_output.login_mode_result(
+            deps=deps,
             provider_name=provider_name,
             auth_mode=auth_mode,
             auth_status="error",
-            next_action=auth_command_hint_fn(
-                "login",
-                provider_name=provider_name,
-                mode="device_code",
-            ),
+            mode="device_code",
+            extra_lines=[
+                f"error_code={str(start_result.get('error_code') or 'oauth_device_start_error')}",
+                f"error_hint={str(start_result.get('error_description') or '').strip()}",
+            ],
         )
-        lines.append(f"error_code={str(start_result.get('error_code') or 'oauth_device_start_error')}")
-        lines.append(f"error_hint={str(start_result.get('error_description') or '').strip()}")
-        return ("\n".join(lines), [])
     pending_session = deps["auth_session_factory"](
         provider_name=config_provider_name,
         token_ref=token_ref,
@@ -182,22 +165,19 @@ def _handle_auth_login_device_code(
         },
     )
     store.put(pending_session)
-    lines = build_auth_status_lines_fn(
-        subcommand="login",
+    return auth_login_output.login_mode_result(
+        deps=deps,
         provider_name=provider_name,
         auth_mode=auth_mode,
         auth_status="authorization_pending",
-        next_action=auth_command_hint_fn(
-            "login",
-            provider_name=provider_name,
-            mode="device_code",
-            poll=True,
-        ),
+        mode="device_code",
+        extra_lines=[
+            f"verification_uri={str(start_result.get('verification_uri') or '').strip()}",
+            f"user_code={str(start_result.get('user_code') or '').strip()}",
+            f"token_ref={token_ref}",
+        ],
+        poll=True,
     )
-    lines.append(f"verification_uri={str(start_result.get('verification_uri') or '').strip()}")
-    lines.append(f"user_code={str(start_result.get('user_code') or '').strip()}")
-    lines.append(f"token_ref={token_ref}")
-    return ("\n".join(lines), [])
 
 
 def _handle_auth_login_browser_pkce(
@@ -213,14 +193,14 @@ def _handle_auth_login_browser_pkce(
     auth_mode = str(state.get("auth_mode") or "-")
     context = dict(state.get("context") or {})
     endpoints = dict(state.get("endpoints") or {})
-    build_auth_status_lines_fn = deps["build_auth_status_lines_fn"]
-    auth_command_hint_fn = deps["auth_command_hint_fn"]
     is_truthy_fn = deps["is_truthy_fn"]
     safe_int_fn = deps["safe_int_fn"]
 
     auth_code = str(options.get("auth-code") or "").strip()
     callback_state = ""
-    wait_callback = is_truthy_fn(options.get("wait-callback")) or is_truthy_fn(options.get("listen"))
+    wait_callback = is_truthy_fn(options.get("wait-callback")) or is_truthy_fn(
+        options.get("listen")
+    )
     callback_timeout_seconds = max(1, safe_int_fn(options.get("callback-timeout-seconds"), 120))
     redirect_uri = str(
         options.get("redirect-uri")
@@ -232,15 +212,14 @@ def _handle_auth_login_browser_pkce(
     client_id = str(endpoints.get("client_id") or "").strip()
     if not auth_code:
         if not authorization_endpoint or not token_endpoint or not client_id:
-            lines = build_auth_status_lines_fn(
-                subcommand="login",
+            return auth_login_output.auth_result(
+                deps=deps,
                 provider_name=provider_name,
                 auth_mode=auth_mode,
                 auth_status="error",
                 next_action="ensure client_id/token_endpoint/authorization_endpoint are configured",
+                extra_lines=["error_code=missing_pkce_endpoints"],
             )
-            lines.append("error_code=missing_pkce_endpoints")
-            return ("\n".join(lines), [])
         start_pkce = dict(
             deps["start_pkce_authorization_fn"](
                 authorization_endpoint=authorization_endpoint,
@@ -251,19 +230,16 @@ def _handle_auth_login_browser_pkce(
             or {}
         )
         if str(start_pkce.get("status") or "").strip() != "ok":
-            lines = build_auth_status_lines_fn(
-                subcommand="login",
+            return auth_login_output.login_mode_result(
+                deps=deps,
                 provider_name=provider_name,
                 auth_mode=auth_mode,
                 auth_status="error",
-                next_action=auth_command_hint_fn(
-                    "login",
-                    provider_name=provider_name,
-                    mode="browser_pkce",
-                ),
+                mode="browser_pkce",
+                extra_lines=[
+                    f"error_code={str(start_pkce.get('error_code') or 'pkce_start_error')}"
+                ],
             )
-            lines.append(f"error_code={str(start_pkce.get('error_code') or 'pkce_start_error')}")
-            return ("\n".join(lines), [])
         pending_session = deps["auth_session_factory"](
             provider_name=config_provider_name,
             token_ref=token_ref,
@@ -291,77 +267,63 @@ def _handle_auth_login_browser_pkce(
                 auth_code = str(callback_result.get("code") or "").strip()
                 callback_state = str(callback_result.get("state") or "").strip()
             elif callback_status == "timeout":
-                lines = build_auth_status_lines_fn(
-                    subcommand="login",
+                start_state = str(start_pkce.get("state") or "").strip()
+                return auth_login_output.login_mode_result(
+                    deps=deps,
                     provider_name=provider_name,
                     auth_mode=auth_mode,
                     auth_status="authorization_pending",
-                    next_action=auth_command_hint_fn(
-                        "login",
-                        provider_name=provider_name,
-                        mode="browser_pkce",
-                        auth_code="<code>",
-                        state=str(start_pkce.get("state") or "").strip(),
-                    ),
+                    mode="browser_pkce",
+                    extra_lines=[
+                        f"authorization_url={str(start_pkce.get('authorization_url') or '').strip()}",
+                        f"state={start_state}",
+                        f"token_ref={token_ref}",
+                        f"error_code={str(callback_result.get('error_code') or 'pkce_callback_timeout')}",
+                        f"error_hint=callback_timeout_seconds:{callback_timeout_seconds}",
+                    ],
+                    auth_code="<code>",
+                    state=start_state,
                 )
-                lines.append(f"authorization_url={str(start_pkce.get('authorization_url') or '').strip()}")
-                lines.append(f"state={str(start_pkce.get('state') or '').strip()}")
-                lines.append(f"token_ref={token_ref}")
-                lines.append(
-                    f"error_code={str(callback_result.get('error_code') or 'pkce_callback_timeout')}"
-                )
-                lines.append(f"error_hint=callback_timeout_seconds:{callback_timeout_seconds}")
-                return ("\n".join(lines), [])
             else:
-                lines = build_auth_status_lines_fn(
-                    subcommand="login",
+                return auth_login_output.login_mode_result(
+                    deps=deps,
                     provider_name=provider_name,
                     auth_mode=auth_mode,
                     auth_status="error",
-                    next_action=auth_command_hint_fn(
-                        "login",
-                        provider_name=provider_name,
-                        mode="browser_pkce",
-                    ),
+                    mode="browser_pkce",
+                    extra_lines=[
+                        f"error_code={str(callback_result.get('error_code') or 'pkce_callback_error')}",
+                        f"error_hint={str(callback_result.get('error_hint') or '').strip()}",
+                        f"authorization_url={str(start_pkce.get('authorization_url') or '').strip()}",
+                        f"state={str(start_pkce.get('state') or '').strip()}",
+                        f"token_ref={token_ref}",
+                    ],
                 )
-                lines.append(f"error_code={str(callback_result.get('error_code') or 'pkce_callback_error')}")
-                lines.append(f"error_hint={str(callback_result.get('error_hint') or '').strip()}")
-                lines.append(f"authorization_url={str(start_pkce.get('authorization_url') or '').strip()}")
-                lines.append(f"state={str(start_pkce.get('state') or '').strip()}")
-                lines.append(f"token_ref={token_ref}")
-                return ("\n".join(lines), [])
             if not auth_code:
-                lines = build_auth_status_lines_fn(
-                    subcommand="login",
+                return auth_login_output.login_mode_result(
+                    deps=deps,
                     provider_name=provider_name,
                     auth_mode=auth_mode,
                     auth_status="error",
-                    next_action=auth_command_hint_fn(
-                        "login",
-                        provider_name=provider_name,
-                        mode="browser_pkce",
-                    ),
+                    mode="browser_pkce",
+                    extra_lines=["error_code=pkce_callback_missing_code"],
                 )
-                lines.append("error_code=pkce_callback_missing_code")
-                return ("\n".join(lines), [])
         else:
-            lines = build_auth_status_lines_fn(
-                subcommand="login",
+            start_state = str(start_pkce.get("state") or "").strip()
+            return auth_login_output.login_mode_result(
+                deps=deps,
                 provider_name=provider_name,
                 auth_mode=auth_mode,
                 auth_status="authorization_url_ready",
-                next_action=auth_command_hint_fn(
-                    "login",
-                    provider_name=provider_name,
-                    mode="browser_pkce",
-                    auth_code="<code>",
-                    state=str(start_pkce.get("state") or "").strip(),
-                ),
+                mode="browser_pkce",
+                extra_lines=[
+                    f"authorization_url={str(start_pkce.get('authorization_url') or '').strip()}",
+                    f"state={start_state}",
+                    f"token_ref={token_ref}",
+                ],
+                auth_code="<code>",
+                state=start_state,
             )
-            lines.append(f"authorization_url={str(start_pkce.get('authorization_url') or '').strip()}")
-            lines.append(f"state={str(start_pkce.get('state') or '').strip()}")
-            lines.append(f"token_ref={token_ref}")
-            return ("\n".join(lines), [])
 
     pending = store.get(config_provider_name, token_ref)
     pending_metadata = dict(pending.metadata or {}) if pending is not None else {}
@@ -379,20 +341,17 @@ def _handle_auth_login_browser_pkce(
         or {}
     )
     if str(pkce_result.get("status") or "").strip() != "ok":
-        lines = build_auth_status_lines_fn(
-            subcommand="login",
+        return auth_login_output.login_mode_result(
+            deps=deps,
             provider_name=provider_name,
             auth_mode=auth_mode,
             auth_status="error",
-            next_action=auth_command_hint_fn(
-                "login",
-                provider_name=provider_name,
-                mode="browser_pkce",
-            ),
+            mode="browser_pkce",
+            extra_lines=[
+                f"error_code={str(pkce_result.get('error_code') or 'pkce_exchange_error')}",
+                f"error_hint={str(pkce_result.get('error_description') or '').strip()}",
+            ],
         )
-        lines.append(f"error_code={str(pkce_result.get('error_code') or 'pkce_exchange_error')}")
-        lines.append(f"error_hint={str(pkce_result.get('error_description') or '').strip()}")
-        return ("\n".join(lines), [])
     metadata = dict(pending_metadata)
     metadata.pop("code_verifier", None)
     metadata.pop("state", None)
@@ -403,12 +362,10 @@ def _handle_auth_login_browser_pkce(
         oauth_result=pkce_result,
         metadata=metadata,
     )
-    lines = build_auth_status_lines_fn(
-        subcommand="login",
+    return auth_login_output.provider_status_result(
+        deps=deps,
         provider_name=provider_name,
         auth_mode=auth_mode,
         auth_status=deps["ensure_auth_session_status_fn"](deps["auth_session_status_fn"](saved)),
-        next_action=auth_command_hint_fn("status", provider_name=provider_name),
+        extra_lines=[f"token_ref={token_ref}"],
     )
-    lines.append(f"token_ref={token_ref}")
-    return ("\n".join(lines), [])

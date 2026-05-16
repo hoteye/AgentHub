@@ -300,6 +300,10 @@ def sync_transcript(controller) -> None:
         if follow_bottom:
             document_end = main_log.document.end
             main_log.move_cursor(document_end)
+            try:
+                main_log.scroll_end(animate=False, immediate=True, force=True, x_axis=False)
+            except Exception:
+                pass
         elif preserved_scroll is not None:
             restore_transcript_viewport(
                 main_log,

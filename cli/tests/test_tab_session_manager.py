@@ -380,6 +380,28 @@ class TestTabSessionManager(unittest.TestCase):
         mgr.active_session.top_title_text = "New Title"
         assert mgr.active_session.top_title_text == "New Title"
 
+    def test_runtime_restore_poll_defers_until_app_running(self):
+        callbacks = []
+
+        class FakeApp:
+            _running = False
+
+            def call_after_refresh(self, callback):
+                callbacks.append(callback)
+                return True
+
+            def set_timer(self, *_args, **_kwargs):
+                raise AssertionError("set_timer should not be called before app is running")
+
+        session = TabSession(tab_id="main", top_title_text="Test")
+        mgr = TabSessionManager(app=FakeApp(), initial_session=session)
+        session.runtime_restore_pending = True
+
+        mgr._schedule_runtime_restore_poll("main")
+
+        assert callbacks
+        assert session.runtime_restore_poll_scheduled is True
+
     def test_mark_master_decorates_tab_label(self):
         mgr = self._make_manager()
 
@@ -756,14 +778,6 @@ class TestAppMultiTab(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             assert app._tab_manager.active_tab_id == "tab-1"
             assert app.focused is app.query_one("#prompt_composer", PromptComposer)
-
-            await pilot.press("ctrl+left")
-            await pilot.pause()
-            assert app._tab_manager.active_tab_id == "main"
-
-            await pilot.press("ctrl+right")
-            await pilot.pause()
-            assert app._tab_manager.active_tab_id == "tab-1"
 
             await pilot.press("ctrl+tab")
             await pilot.pause()

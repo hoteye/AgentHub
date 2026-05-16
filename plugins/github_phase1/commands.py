@@ -4,70 +4,13 @@ import json
 import shlex
 from typing import Any
 
-from cli.agent_cli.models import CommandExecutionResult, ToolEvent, generic_tool_call_item_events
+from cli.agent_cli.models import ToolEvent
 from cli.agent_cli.slash_surface import surface_usage_text
 
-
-def _compact_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
-    compact: dict[str, Any] = {}
-    for key, value in dict(arguments or {}).items():
-        if value is None:
-            continue
-        if isinstance(value, str) and not value.strip():
-            continue
-        if isinstance(value, (list, dict)) and not value:
-            continue
-        compact[key] = value
-    return compact
-
-
-def _single_event_result(
-    assistant_text: str,
-    event: ToolEvent,
-    *,
-    tool_name: str | None = None,
-    arguments: dict[str, Any] | None = None,
-) -> CommandExecutionResult:
-    normalized_arguments = _compact_arguments(arguments or {})
-    return CommandExecutionResult(
-        assistant_text=str(assistant_text or ""),
-        tool_events=[event],
-        item_events=generic_tool_call_item_events(
-            tool_name=str(tool_name or event.name or "").strip(),
-            arguments=normalized_arguments or None,
-            ok=bool(event.ok),
-            summary=str(event.summary or ""),
-            structured_content=dict(event.payload or {}),
-        ),
-    )
-
-
-def _invoke_plugin_tool_result(
-    runtime_obj,
-    *,
-    tool_name: str,
-    assistant_text: str,
-    arguments: dict[str, Any],
-    **kwargs: Any,
-) -> CommandExecutionResult:
-    if runtime_obj is None:
-        raise RuntimeError("runtime is required for github plugin commands")
-    result_getter = getattr(getattr(runtime_obj, "tools", None), "invoke_plugin_tool_result", None)
-    if callable(result_getter):
-        result = result_getter(tool_name, **kwargs)
-        if isinstance(result, CommandExecutionResult):
-            return CommandExecutionResult(
-                assistant_text=assistant_text,
-                tool_events=list(result.tool_events or []),
-                item_events=[dict(item) for item in list(result.item_events or []) if isinstance(item, dict)],
-            )
-    event = runtime_obj.tools.invoke_plugin_tool(tool_name, **kwargs)
-    return _single_event_result(
-        assistant_text,
-        event,
-        tool_name=tool_name,
-        arguments=arguments,
-    )
+from .commands_projection_runtime import (
+    invoke_plugin_tool_result,
+    single_event_result,
+)
 
 
 def _parse_args(arg_text: str) -> tuple[list[str], dict[str, Any]]:
@@ -127,7 +70,8 @@ def _parse_repo(value: str) -> tuple[str, str] | None:
 def _base_kwargs(options: dict[str, Any]) -> dict[str, Any]:
     return {
         "token_env": str(options.get("token-env") or "GITHUB_TOKEN").strip() or "GITHUB_TOKEN",
-        "api_base_url": str(options.get("api-base-url") or "https://api.github.com").strip() or "https://api.github.com",
+        "api_base_url": str(options.get("api-base-url") or "https://api.github.com").strip()
+        or "https://api.github.com",
         "correlation_id": str(options.get("correlation-id") or "").strip() or None,
     }
 
@@ -146,7 +90,7 @@ def github_issue_create_command(arg_text: str, runtime=None):
         "body": str(options.get("body") or ""),
         **_base_kwargs(options),
     }
-    return _invoke_plugin_tool_result(
+    return invoke_plugin_tool_result(
         runtime,
         tool_name="github_issue_create",
         assistant_text="Request GitHub issue creation.",
@@ -179,7 +123,7 @@ def github_issue_comment_command(arg_text: str, runtime=None):
         "body": body,
         **_base_kwargs(options),
     }
-    return _invoke_plugin_tool_result(
+    return invoke_plugin_tool_result(
         runtime,
         tool_name="github_issue_comment",
         assistant_text="Request GitHub issue comment.",
@@ -215,7 +159,7 @@ def github_issue_add_labels_command(arg_text: str, runtime=None):
         "labels": labels,
         **_base_kwargs(options),
     }
-    return _invoke_plugin_tool_result(
+    return invoke_plugin_tool_result(
         runtime,
         tool_name="github_issue_add_labels",
         assistant_text="Request GitHub issue label update.",
@@ -246,7 +190,7 @@ def github_issue_close_command(arg_text: str, runtime=None):
         "issue_number": issue_number,
         **_base_kwargs(options),
     }
-    return _invoke_plugin_tool_result(
+    return invoke_plugin_tool_result(
         runtime,
         tool_name="github_issue_close",
         assistant_text="Request GitHub issue close.",
@@ -282,7 +226,7 @@ def github_workflow_dispatch_command(arg_text: str, runtime=None):
         "inputs": inputs,
         **_base_kwargs(options),
     }
-    return _invoke_plugin_tool_result(
+    return invoke_plugin_tool_result(
         runtime,
         tool_name="github_workflow_dispatch",
         assistant_text="Request GitHub workflow dispatch.",
@@ -313,7 +257,12 @@ def github_approval_list_command(arg_text: str, runtime=None):
         summary=f"approval tickets={len(items)}",
         payload=payload,
     )
-    return _single_event_result("List GitHub approval tickets.", event, tool_name="github_approval_list", arguments={"status": status})
+    return single_event_result(
+        "List GitHub approval tickets.",
+        event,
+        tool_name="github_approval_list",
+        arguments={"status": status},
+    )
 
 
 def _approval_decision_command(arg_text: str, runtime=None, *, approved: bool):
@@ -334,7 +283,9 @@ def _approval_decision_command(arg_text: str, runtime=None, *, approved: bool):
         "ok": True,
         "approval_ticket": result["approval_ticket"].to_dict(),
         "action_request": result["action_request"].to_dict(),
-        "action_result": result["action_result"].to_dict() if result["action_result"] is not None else None,
+        "action_result": (
+            result["action_result"].to_dict() if result["action_result"] is not None else None
+        ),
         "audit_records": [item.to_dict() for item in result["audit_records"]],
     }
     event = ToolEvent(
@@ -347,7 +298,7 @@ def _approval_decision_command(arg_text: str, runtime=None, *, approved: bool):
         ),
         payload=payload,
     )
-    return _single_event_result(
+    return single_event_result(
         "Approve and execute GitHub action." if approved else "Reject GitHub action.",
         event,
         tool_name="github_approval_approve" if approved else "github_approval_reject",

@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -30,7 +31,7 @@ from cli.agent_cli.app_runtime_flow import (
     _PendingRequestUserInput as _PendingRequestUserInputRuntime,
 )
 from cli.agent_cli.app_tab_delegation_runtime import AppTabDelegationRuntimeMixin
-from cli.agent_cli.startup_debug import startup_timer
+from cli.agent_cli.startup_debug import startup_log, startup_timer
 from cli.agent_cli.ui import (
     PromptComposer,
     SlashCommandPopup,
@@ -114,6 +115,19 @@ class AgentCliApp(
             prompt_history_home=prompt_history_home,
             context=bootstrap,
         )
+
+    def exit(self, *args: object, **kwargs: object) -> None:
+        startup_log(
+            "app.exit.called "
+            f"exit_requested={getattr(self, '_exit_requested', False)} "
+            f"shutdown={getattr(self, '_shutdown_initiated', False)}"
+        )
+        return super().exit(*args, **kwargs)
+
+    def _handle_exception(self, error: Exception) -> None:
+        startup_log(f"app.handle_exception {error.__class__.__name__}: {error!r}")
+        startup_log(traceback.format_exc().rstrip())
+        return super()._handle_exception(error)
 
     @property
     def runtime(self) -> AgentCliRuntime:

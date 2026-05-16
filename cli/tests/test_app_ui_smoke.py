@@ -1359,7 +1359,7 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(composer.text, "hello")
             self.assertTrue(composer.has_selection)
 
-    async def test_ctrl_x_cuts_selection_and_ctrl_z_ctrl_y_restore_it(self) -> None:
+    async def test_ctrl_x_cuts_selection_and_ctrl_z_ctrl_shift_z_restore_it(self) -> None:
         app = AgentCliApp()
         copied: list[str] = []
         app.copy_to_clipboard = lambda text: copied.append(text)
@@ -1380,7 +1380,7 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertEqual(composer.text, "hello")
 
-            await pilot.press("ctrl+y")
+            await pilot.press("ctrl+shift+z")
             await pilot.pause()
             self.assertEqual(composer.text, "hel")
 
@@ -1760,10 +1760,10 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
             )
             transcript = app.query_one("#main_log", TranscriptArea).text
 
-        self.assertIn("• Inspecting current project state.", transcript)
+        self.assertIn("◦ Inspecting current project state.", transcript)
         self.assertIn("• Current directory contents are ready.", transcript)
         self.assertLess(
-            transcript.index("• Inspecting current project state."),
+            transcript.index("◦ Inspecting current project state."),
             transcript.index("• Current directory contents are ready."),
         )
         self.assertNotIn("─" * 77, transcript)
@@ -1835,7 +1835,7 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
             transcript = app.query_one("#main_log", TranscriptArea).text
 
         self.assertIn(
-            "• 入口在 cli/agent_cli/headless.py\n\n• 先检查 workspace，再读入口",
+            "• 入口在 cli/agent_cli/headless.py\n\n◦ 先检查 workspace，再读入口",
             transcript,
         )
         self.assertEqual(transcript.count("• 入口在 cli/agent_cli/headless.py"), 1)
@@ -1897,12 +1897,12 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
             app._write_live_turn_event({"type": "turn.completed"})
             after_completed = app.query_one("#main_log", TranscriptArea).text
 
-        self.assertIn("• 我先查看当前目录内容。", before_completed)
-        self.assertIn("• Explored", before_completed)
+        self.assertIn("◦ 我先查看当前目录内容。", before_completed)
+        self.assertIn("◆ Explored", before_completed)
         self.assertIn("  └ List .", before_completed)
         self.assertIn("• 当前目录内容已经列出来了。", before_completed)
-        self.assertIn("• Explored\n  └ List .", after_completed)
-        self.assertRegex(after_completed, r"─{2,}完成时间\d{2}:\d{2}，用时\d+[sm]─*")
+        self.assertIn("◆ Explored\n  └ List .", after_completed)
+        self.assertRegex(after_completed, r"─{2,}完成\d{2}:\d{2}，用时\d+[sm]─*")
         self.assertIn("• 当前目录内容已经列出来了。", after_completed)
 
     async def test_live_command_execution_turn_events_render_incrementally(self) -> None:
@@ -1939,9 +1939,9 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
             )
             completed_transcript = app.query_one("#main_log", TranscriptArea).text
 
-        self.assertIn("• Running python -V", started_transcript)
-        self.assertIn("• Ran python -V", completed_transcript)
-        self.assertNotIn("• Running python -V", completed_transcript)
+        self.assertIn("$ Running python -V", started_transcript)
+        self.assertIn("$ Ran python -V", completed_transcript)
+        self.assertNotIn("$ Running python -V", completed_transcript)
         self.assertIn("  └ Python 3.13.0", completed_transcript)
 
     async def test_live_provider_shell_turn_events_collapse_to_single_command_execution_entry(
@@ -1985,9 +1985,9 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
             )
             completed_transcript = app.query_one("#main_log", TranscriptArea).text
 
-        self.assertIn("• Ran python -V", started_transcript)
-        self.assertIn("• Ran python -V", completed_transcript)
-        self.assertEqual(completed_transcript.count("• Ran python -V"), 1)
+        self.assertIn("$ Ran python -V", started_transcript)
+        self.assertIn("$ Ran python -V", completed_transcript)
+        self.assertEqual(completed_transcript.count("$ Ran python -V"), 1)
         self.assertIn("  └ Python 3.13.0", completed_transcript)
         self.assertNotIn("shell_call", completed_transcript)
 
@@ -2026,9 +2026,8 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
             completed_transcript = app.query_one("#main_log", TranscriptArea).text
 
         self.assertIn("✗ Command failed:", activity_transcript)
-        self.assertIn(
-            "• Ran grep -c '<<<<<<< Updated upstream' package-lock.json", completed_transcript
-        )
+        self.assertIn("✗ Ran cd /home/lyc/project/gemini-cli", completed_transcript)
+        self.assertIn('grep -c "<<<<<<< Updated upstream"', completed_transcript)
         self.assertIn("  └ package-lock.json:0", completed_transcript)
         self.assertNotIn("✗ Command failed:", completed_transcript)
 
@@ -2051,7 +2050,7 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
                     },
                 }
             )
-            self.assertIn("• Todo List", app.query_one("#main_log", TranscriptArea).text)
+            self.assertIn("□ Todo List", app.query_one("#main_log", TranscriptArea).text)
 
             app._set_busy(True)
             app.action_interrupt_run()
@@ -2059,7 +2058,7 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
 
             interrupted_transcript = app.query_one("#main_log", TranscriptArea).text
             self.assertEqual(runtime.interrupt_calls, 1)
-            self.assertNotIn("• Todo List", interrupted_transcript)
+            self.assertNotIn("□ Todo List", interrupted_transcript)
             self.assertIn(app._t("assistant.conversation_interrupted"), interrupted_transcript)
 
             app._write_live_turn_event(
@@ -2090,7 +2089,7 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
             )
             final_transcript = app.query_one("#main_log", TranscriptArea).text
 
-        self.assertNotIn("• Todo List", final_transcript)
+        self.assertNotIn("□ Todo List", final_transcript)
         self.assertNotIn("继续执行中", final_transcript)
         self.assertIn(app._t("assistant.conversation_interrupted"), final_transcript)
 
@@ -2133,7 +2132,7 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
             )
             transcript = app.query_one("#main_log", TranscriptArea).text
 
-        self.assertNotIn("• Todo List", transcript)
+        self.assertNotIn("□ Todo List", transcript)
         self.assertIn(app._t("assistant.conversation_interrupted"), transcript)
         self.assertEqual(
             sum(
@@ -2239,12 +2238,12 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
             )
             final_transcript = app.query_one("#main_log", TranscriptArea).text
 
-        self.assertIn("• Exploring", started_transcript)
+        self.assertIn("◆ Exploring", started_transcript)
         self.assertIn("  └ List cli/agent_cli/providers", started_transcript)
-        self.assertIn("• Explored", completed_transcript)
+        self.assertIn("◆ Explored", completed_transcript)
         self.assertIn("  └ List cli/agent_cli/providers", completed_transcript)
-        self.assertNotIn("• Exploring", completed_transcript)
-        self.assertEqual(final_transcript.count("• Explored"), 1)
+        self.assertNotIn("◆ Exploring", completed_transcript)
+        self.assertEqual(final_transcript.count("◆ Explored"), 1)
 
     async def test_live_web_search_turn_events_render_compact_web_cell_without_raw_tool_invocation(
         self,
@@ -2307,16 +2306,16 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
             )
             completed_transcript = app.query_one("#main_log", TranscriptArea).text
 
-        self.assertIn("• Searching the web", started_transcript)
+        self.assertIn("⌕ Searching the web", started_transcript)
         self.assertIn("  └ 北京 今天天气", started_transcript)
-        self.assertIn("    state=search_dispatched", started_transcript)
-        self.assertIn("• Native web search", completed_transcript)
+        self.assertIn("  │ state: search_dispatched", started_transcript)
+        self.assertIn("⌕ Native web search", completed_transcript)
         self.assertIn("  └ 北京 今天天气", completed_transcript)
-        self.assertIn(
-            "    state=search_results_received | backend=native | count=1", completed_transcript
-        )
+        self.assertIn("  │ state: search_results_received", completed_transcript)
+        self.assertIn("  │ backend: native", completed_transcript)
+        self.assertIn("  │ count: 1", completed_transcript)
         self.assertNotIn("local.web_search", completed_transcript)
-        self.assertEqual(completed_transcript.count("• Searching the web"), 0)
+        self.assertEqual(completed_transcript.count("⌕ Searching the web"), 0)
 
     async def test_live_web_search_turn_events_render_compact_interrupted_reason(self) -> None:
         app = AgentCliApp()
@@ -2354,13 +2353,12 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
             )
             transcript = app.query_one("#main_log", TranscriptArea).text
 
-        self.assertIn("• Native web search failed", transcript)
+        self.assertIn("✗ Native web search failed", transcript)
         self.assertIn("  └ 北京 明天天气", transcript)
-        self.assertIn("    state=native_interrupted | backend=native", transcript)
-        self.assertIn(
-            "reason=native web search response was incomplete before usable results were received",
-            transcript,
-        )
+        self.assertIn("  │ state: native_interrupted", transcript)
+        self.assertIn("  │ backend: native", transcript)
+        self.assertIn("reason: native web search response was incomplete", transcript)
+        self.assertIn("were received", transcript)
 
     async def test_activity_commentary_and_final_reply_stay_visually_grouped_by_layer(self) -> None:
         app = AgentCliApp()
@@ -2384,12 +2382,12 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
             transcript = app.query_one("#main_log", TranscriptArea).text
 
         self.assertIn(
-            "• Running select_conversation\n\n• Inspecting current project state.",
+            "◆ Running select_conversation\n\n◦ Inspecting current project state.",
             transcript,
         )
-        self.assertIn(
-            f"• Inspecting current project state.\n\n{'─' * 77}\n\n• Current directory contents are ready.",
-            transcript,
+        self.assertLess(
+            transcript.index("◦ Inspecting current project state."),
+            transcript.index("• Current directory contents are ready."),
         )
 
     def test_transcript_block_formats_match_reference_style(self) -> None:
@@ -3726,6 +3724,32 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
 
             self.assertGreaterEqual(int(main_log.scroll_y), max(0, int(main_log.max_scroll_y) - 1))
 
+    async def test_submit_slash_command_forces_transcript_to_latest(self) -> None:
+        app = AgentCliApp()
+
+        async with app.run_test() as pilot:
+            await pilot.resize_terminal(72, 18)
+            await pilot.pause()
+            for index in range(24):
+                app._write_user_prompt(f"prompt {index}")
+                app._write_assistant_reply(f"assistant reply {index} " + ("detail " * 8))
+            await pilot.pause()
+
+            main_log = app.query_one("#main_log", TranscriptArea)
+            self.assertGreater(int(main_log.max_scroll_y), 0)
+
+            main_log.scroll_to(y=0, animate=False, immediate=True, force=True)
+            await pilot.pause()
+            self.assertEqual(int(main_log.scroll_y), 0)
+
+            app._set_prompt_text("/help")
+            await app.action_submit_prompt()
+            await app._wait_for_runtime_idle()
+            await pilot.pause()
+
+            self.assertIn("› /help", main_log.text)
+            self.assertGreaterEqual(int(main_log.scroll_y), max(0, int(main_log.max_scroll_y) - 1))
+
     async def test_composer_left_mouse_up_copies_selection_to_clipboard(self) -> None:
         app = AgentCliApp()
         copied: list[str] = []
@@ -3919,15 +3943,15 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
 
             transcript = app.query_one("#main_log", TranscriptArea).text
 
-        self.assertIn("• Todo List", transcript)
+        self.assertIn("□ Todo List", transcript)
         self.assertIn("  └ select_conversation", transcript)
         self.assertIn("    read_recent_messages", transcript)
-        self.assertIn("• Running select_conversation", transcript)
-        self.assertIn("• Selected Enterprise WeChat automation validation", transcript)
-        self.assertIn("  └ current Enterprise WeChat automation validation", transcript)
-        self.assertNotIn("• Running python -V", transcript)
+        self.assertIn("▸ Tool activity (3 updates)", transcript)
+        self.assertIn("  └ Running select_conversation", transcript)
+        self.assertIn("    +2 more", transcript)
+        self.assertNotIn("$ Running python -V", transcript)
         self.assertNotIn("Python 3.11.9", transcript)
-        self.assertIn("• Ran python -V", transcript)
+        self.assertNotIn("$ Ran python -V", transcript)
         self.assertNotIn("exit 0 | 0.12s", transcript)
         self.assertNotIn("$ python -V", transcript)
         self.assertNotIn("ok  ", transcript)
@@ -3951,8 +3975,8 @@ class AppUiSmokeTest(unittest.IsolatedAsyncioTestCase):
 
             transcript = app.query_one("#main_log", TranscriptArea).text
 
-        self.assertNotIn("• Running python -V", transcript)
-        self.assertIn("• Ran python -V", transcript)
+        self.assertNotIn("$ Running python -V", transcript)
+        self.assertIn("$ Ran python -V", transcript)
         self.assertNotIn("exit 0 | 0.12s", transcript)
 
     async def test_activity_feed_prefixes_stderr_output(self) -> None:

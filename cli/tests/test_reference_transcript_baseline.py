@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from cli.agent_cli.models import ActivityEvent, ToolEvent
 from cli.agent_cli.runtime_core.event_rendering import activity_events_for_tool_event
 from cli.agent_cli.ui.transcript_formatting import (
@@ -9,12 +11,15 @@ from cli.agent_cli.ui.transcript_formatting import (
     format_transcript_block,
 )
 from cli.agent_cli.ui.transcript_history import (
+    ACTIVITY_PREFIX_STYLE,
+    COMMENTARY_TEXT_STYLE,
     RenderedTranscript,
     TranscriptEntry,
     activity_entry,
     assistant_message_entry,
     blank_entry,
     commentary_message_entry,
+    reasoning_message_entry,
     render_transcript_entries,
     render_transcript_visual_entries,
 )
@@ -426,6 +431,30 @@ def test_file_search_activity_keeps_match_summary() -> None:
         "• Explored",
         "  └ Search hello in src",
     ]
+    assert entry.structured is not None
+    assert entry.structured["type"] == "tool"
+    assert entry.structured["name"] == "command_exploration"
+    assert entry.structured["metadata"]["source"] == "activity_event"
+
+
+def test_file_search_visual_render_uses_structured_payload_before_legacy_lines() -> None:
+    entry = activity_entry(
+        ActivityEvent(
+            title="Searched files",
+            status="success",
+            kind="tool",
+            detail="count=2\nquery=hello\npath=src\nsrc/app.py:8 | TODO hello",
+        )
+    )
+
+    assert entry is not None
+    tampered = replace(entry, lines=["BROKEN LEGACY LINE"])
+    rendered = render_transcript_visual_entries([tampered], width=80)
+
+    assert rendered.lines == [
+        "◆ Explored",
+        "  └ Search hello in src",
+    ]
 
 
 def test_canonical_grep_files_activity_keeps_match_summary() -> None:
@@ -458,6 +487,29 @@ def test_file_read_activity_stays_compact_without_body_dump() -> None:
     assert entry is not None
     assert entry.lines == [
         "• Explored",
+        "  └ Read README.md",
+    ]
+
+
+def test_file_read_activity_visual_render_uses_structured_block_before_legacy_lines() -> None:
+    entry = activity_entry(
+        ActivityEvent(
+            title="Read file",
+            status="success",
+            kind="tool",
+            code="file.read",
+            detail="README.md | lines=8",
+            params={"path": "README.md", "line_count": 8},
+        )
+    )
+
+    assert entry is not None
+    assert entry.structured is not None
+    tampered = replace(entry, lines=["BROKEN LEGACY LINE"])
+    rendered = render_transcript_visual_entries([tampered], width=80)
+
+    assert rendered.lines == [
+        "◆ Explored",
         "  └ Read README.md",
     ]
 
@@ -770,6 +822,52 @@ def test_render_transcript_visual_entries_trim_leading_markdown_blank_lines() ->
     )
 
     assert rendered.lines == ["• plain"]
+
+
+def test_render_transcript_visual_entries_distinguishes_basic_entry_types() -> None:
+    entries = [
+        commentary_message_entry("Checking official sources."),
+        reasoning_message_entry("Plan the lookup."),
+        activity_entry(
+            ActivityEvent(
+                title="Searched the web",
+                status="success",
+                kind="web",
+                code="web.search",
+                detail="query=openai responses api",
+            )
+        ),
+        activity_entry(
+            ActivityEvent(title="Updated Plan", status="info", kind="plan", detail="1. verify")
+        ),
+        activity_entry(ActivityEvent(title="select_conversation", status="running", kind="tool")),
+        assistant_message_entry("Top result is ready."),
+    ]
+
+    rendered = render_transcript_visual_entries(
+        [entry for entry in entries if entry is not None],
+        width=48,
+    )
+
+    assert rendered.lines == [
+        "◦ Checking official sources.",
+        "",
+        "◦ Plan the lookup.",
+        "",
+        "⌕ Searched the web",
+        "  └ openai responses api",
+        "",
+        "□ Todo List",
+        "  └ verify",
+        "",
+        "◆ Running select_conversation",
+        "",
+        "• Top result is ready.",
+    ]
+    assert (0, 2, ACTIVITY_PREFIX_STYLE) in rendered.line_styles[4]
+    assert (0, 2, ACTIVITY_PREFIX_STYLE) in rendered.line_styles[7]
+    assert (0, 2, ACTIVITY_PREFIX_STYLE) in rendered.line_styles[10]
+    assert (2, len(rendered.lines[0]), COMMENTARY_TEXT_STYLE) in rendered.line_styles[0]
 
 
 def test_layered_transcript_entries_insert_single_blank_between_commentary_tool_and_final() -> None:

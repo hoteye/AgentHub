@@ -1,12 +1,24 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 from shared.web_automation.client import BrowserClient
 from shared.web_automation.request_policy import (
     normalize_browser_request_path,
     resolve_requested_browser_profile,
+)
+from shared.web_automation.routes_payload_runtime import (
+    _optional_bool,
+    _optional_dict_list,
+    _optional_int,
+    _optional_list,
+    _optional_text,
+    _required_dict,
+    _required_dict_list,
+    _required_text,
+    _required_text_list,
 )
 
 
@@ -336,82 +348,12 @@ class BrowserRouteDispatcher:
 
         return BrowserRouteResponse(
             status=404,
-            body={"ok": False, "error": f"unknown browser route: {normalized_method} {normalized_path}"},
+            body={
+                "ok": False,
+                "error": f"unknown browser route: {normalized_method} {normalized_path}",
+            },
         )
 
     @staticmethod
     def _ok(payload: dict[str, Any]) -> BrowserRouteResponse:
         return BrowserRouteResponse(status=200, body=dict(payload))
-
-
-def _required_text(mapping: Mapping[str, object], key: str) -> str:
-    value = _optional_text(mapping, key)
-    if not value:
-        raise ValueError(f"{key} is required")
-    return value
-
-
-def _optional_text(mapping: Mapping[str, object], key: str) -> str | None:
-    value = mapping.get(key)
-    text = str(value or "").strip()
-    return text or None
-
-
-def _optional_int(mapping: Mapping[str, object], key: str) -> int | None:
-    value = mapping.get(key)
-    if value is None or value == "":
-        return None
-    return int(value)
-
-
-def _optional_bool(mapping: Mapping[str, object], key: str) -> bool | None:
-    value = mapping.get(key)
-    if value is None or value == "":
-        return None
-    if isinstance(value, bool):
-        return value
-    normalized = str(value).strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    raise ValueError(f"{key} must be a boolean")
-
-
-def _optional_list(mapping: Mapping[str, object], key: str) -> list[str] | None:
-    value = mapping.get(key)
-    if value is None:
-        return None
-    if not isinstance(value, list):
-        raise ValueError(f"{key} must be a list")
-    return [str(item) for item in value]
-
-
-def _optional_dict_list(mapping: Mapping[str, object], key: str) -> list[dict[str, object]] | None:
-    value = mapping.get(key)
-    if value is None:
-        return None
-    if not isinstance(value, list) or any(not isinstance(item, Mapping) for item in value):
-        raise ValueError(f"{key} must be a list of objects")
-    return [dict(item) for item in value]
-
-
-def _required_dict_list(mapping: Mapping[str, object], key: str) -> list[dict[str, object]]:
-    value = _optional_dict_list(mapping, key)
-    if value is None:
-        raise ValueError(f"{key} is required")
-    return value
-
-
-def _required_text_list(mapping: Mapping[str, object], key: str) -> list[str]:
-    value = _optional_list(mapping, key)
-    if value is None:
-        raise ValueError(f"{key} is required")
-    return value
-
-
-def _required_dict(mapping: Mapping[str, object], key: str) -> dict[str, object]:
-    value = mapping.get(key)
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{key} must be an object")
-    return dict(value)

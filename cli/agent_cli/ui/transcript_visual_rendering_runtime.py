@@ -8,16 +8,21 @@ from rich.style import Style as RichStyle
 
 from cli.agent_cli.ui.markdown_render import render_markdown_visual_lines
 from cli.agent_cli.ui.theme import (
-    TRANSCRIPT_MESSAGE_PREFIX,
     ThemeStyles,
 )
+from cli.agent_cli.ui.transcript_structured_rendering_runtime import (
+    structured_visual_lines_for_entry,
+)
 from cli.agent_cli.ui.transcript_visual_rendering_helpers import (
+    apply_visual_header_prefix,
     markdown_base_style,
     markdown_line_styles,
     markdown_prefix_style,
     normalized_completion_stamp_line,
     plain_line_styles,
     prefix_rendered_lines,
+    prefixed_visual_lines,
+    visual_header_prefix,
     wrap_prefixed_text,
 )
 
@@ -32,6 +37,9 @@ def visual_lines_for_entry(
     console: Console | None,
     styles: ThemeStyles,
 ) -> list[tuple[str, list[tuple[int, int, RichStyle]]]]:
+    structured_lines = structured_visual_lines_for_entry(entry, width=width, styles=styles)
+    if structured_lines is not None:
+        return structured_lines
     if entry.render_mode in {"markdown", "reasoning_markdown"} and entry.raw_content is not None:
         return render_markdown_entry_lines(entry, width=width, console=console, styles=styles)
     if entry.render_mode == "separator":
@@ -48,6 +56,7 @@ def visual_lines_for_entry(
     rendered_lines: list[tuple[str, list[tuple[int, int, RichStyle]]]] = []
     for line_index, line in enumerate(visible_lines):
         line_text = str(line)
+        line_text = apply_visual_header_prefix(entry, line_text, line_index=line_index)
         normalized_completion_line = normalized_completion_stamp_line(line_text)
         if normalized_completion_line is not None:
             line_text = normalized_completion_line
@@ -82,7 +91,7 @@ def render_markdown_entry_lines(
     ]
     prefixed_lines = prefix_rendered_lines(
         visible_lines,
-        first_prefix=TRANSCRIPT_MESSAGE_PREFIX,
+        first_prefix=visual_header_prefix(entry),
         continuation_prefix="",
         prefix_style=markdown_prefix_style(entry, styles=styles),
     )
@@ -147,9 +156,10 @@ def render_tool_command_entry_lines(
                     width=width,
                 )
             )
+    visual_lines = prefixed_visual_lines(entry, rendered_lines)
     return [
         (line_text, plain_line_styles(entry, line_index, line_text, styles=styles))
-        for line_index, line_text in enumerate(rendered_lines)
+        for line_index, line_text in enumerate(visual_lines)
     ]
 
 
@@ -170,9 +180,10 @@ def render_tool_mcp_entry_lines(
         header_word = "Called"
         invocation = header_line[len("• Called ") :]
     else:
+        visual_lines = prefixed_visual_lines(entry, [str(line) for line in visible_lines])
         return [
-            (str(line), plain_line_styles(entry, line_index, str(line), styles=styles))
-            for line_index, line in enumerate(visible_lines)
+            (line_text, plain_line_styles(entry, line_index, line_text, styles=styles))
+            for line_index, line_text in enumerate(visual_lines)
         ]
     detail_lines = [
         str(line[4:] if str(line).startswith(("  └ ", "    ")) else line)
@@ -202,9 +213,10 @@ def render_tool_mcp_entry_lines(
                 width=width,
             )
         )
+    visual_lines = prefixed_visual_lines(entry, rendered_lines)
     return [
         (line_text, plain_line_styles(entry, line_index, line_text, styles=styles))
-        for line_index, line_text in enumerate(rendered_lines)
+        for line_index, line_text in enumerate(visual_lines)
     ]
 
 
@@ -260,9 +272,10 @@ def render_web_search_entry_lines(
             )
         )
 
+    visual_lines = prefixed_visual_lines(entry, rendered_lines)
     return [
         (line_text, plain_line_styles(entry, line_index, line_text, styles=styles))
-        for line_index, line_text in enumerate(rendered_lines)
+        for line_index, line_text in enumerate(visual_lines)
     ]
 
 
@@ -308,9 +321,10 @@ def render_todo_list_entry_lines(
             )
         )
 
+    visual_lines = prefixed_visual_lines(entry, rendered_lines)
     return [
         (line_text, plain_line_styles(entry, line_index, line_text, styles=styles))
-        for line_index, line_text in enumerate(rendered_lines)
+        for line_index, line_text in enumerate(visual_lines)
     ]
 
 

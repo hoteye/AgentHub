@@ -8,7 +8,6 @@ from rich.cells import cell_len
 from rich.style import Style as RichStyle
 
 from cli.agent_cli.ui.theme import (
-    TRANSCRIPT_CONTINUATION_PREFIX,
     TRANSCRIPT_MESSAGE_PREFIX,
     TRANSCRIPT_USER_PREFIX,
     ThemeStyles,
@@ -20,6 +19,8 @@ if TYPE_CHECKING:
 _COMPLETION_STAMP_LINE_RE = re.compile(
     r"^\s*(?P<stamp>(?:🏁|[tT])\s+\d{2}:\d{2}\s+(?:(?:⌛|⌛️|⏱|⏱️)\s+)?\d+[sm]|Done\s+\d{2}:\d{2},\s+took\s+\d+[sm]|完成\d{2}:\d{2}，用时\d+[sm]|完成时间\s+\d{2}:\d{2})\s*$"
 )
+_VISUAL_HEADER_PREFIXES = frozenset({"$ ", "⌕ ", "◆ ", "▸ ", "□ ", "◦ ", "✗ "})
+_ALL_HEADER_PREFIXES = (TRANSCRIPT_MESSAGE_PREFIX, *_VISUAL_HEADER_PREFIXES)
 
 
 def normalized_completion_stamp_line(line_text: str) -> str | None:
@@ -87,7 +88,68 @@ def prefix_rendered_lines(
     return prefixed
 
 
-def markdown_base_style(entry: "TranscriptEntry", *, styles: ThemeStyles) -> RichStyle:
+def visual_header_prefix(entry: TranscriptEntry) -> str:
+    if entry.kind == "activity":
+        if str(entry.status or "").strip().lower() in {"error", "failed"}:
+            return "✗ "
+        activity_key = str(entry.activity_key or "").strip()
+        if (
+            entry.render_mode == "tool_command"
+            or activity_key.startswith("command:")
+            or ":command:" in activity_key
+        ):
+            return "$ "
+        if entry.render_mode == "web_search" or entry.layer == "web":
+            return "⌕ "
+        if entry.render_mode == "todo_list":
+            return "□ "
+        if entry.render_mode == "prompt_tool_group":
+            return "▸ "
+        if entry.layer == "tool":
+            return "◆ "
+        if entry.layer == "commentary":
+            return "◦ "
+        return TRANSCRIPT_MESSAGE_PREFIX
+    if entry.kind == "reasoning" or entry.layer in {"commentary", "reasoning"}:
+        return "◦ "
+    return TRANSCRIPT_MESSAGE_PREFIX
+
+
+def apply_visual_header_prefix(
+    entry: TranscriptEntry,
+    line_text: str,
+    *,
+    line_index: int,
+) -> str:
+    if line_index != 0 or not line_text or is_completion_stamp_line(line_text):
+        return line_text
+    prefix = visual_header_prefix(entry)
+    if not prefix or line_text.startswith(prefix):
+        return line_text
+    if line_text.startswith(TRANSCRIPT_MESSAGE_PREFIX):
+        return f"{prefix}{line_text[len(TRANSCRIPT_MESSAGE_PREFIX):]}"
+    if entry.kind == "activity" and not any(
+        line_text.startswith(item) for item in _VISUAL_HEADER_PREFIXES
+    ):
+        return f"{prefix}{line_text}"
+    return line_text
+
+
+def prefixed_visual_lines(entry: TranscriptEntry, lines: list[str]) -> list[str]:
+    return [
+        apply_visual_header_prefix(entry, line_text, line_index=line_index)
+        for line_index, line_text in enumerate(lines)
+    ]
+
+
+def _header_prefix_for_line(line_text: str) -> str:
+    for prefix in _ALL_HEADER_PREFIXES:
+        if line_text.startswith(prefix):
+            return prefix
+    return ""
+
+
+def markdown_base_style(entry: TranscriptEntry, *, styles: ThemeStyles) -> RichStyle:
     if entry.status == "error":
         return styles.error_text_style
     if entry.kind == "reasoning":
@@ -97,7 +159,7 @@ def markdown_base_style(entry: "TranscriptEntry", *, styles: ThemeStyles) -> Ric
     return styles.final_text_style
 
 
-def markdown_prefix_style(entry: "TranscriptEntry", *, styles: ThemeStyles) -> RichStyle:
+def markdown_prefix_style(entry: TranscriptEntry, *, styles: ThemeStyles) -> RichStyle:
     if entry.status == "error":
         return styles.error_text_style
     if entry.kind == "reasoning":
@@ -108,7 +170,7 @@ def markdown_prefix_style(entry: "TranscriptEntry", *, styles: ThemeStyles) -> R
 
 
 def plain_line_styles(
-    entry: "TranscriptEntry",
+    entry: TranscriptEntry,
     line_index: int,
     line_text: str,
     *,
@@ -133,14 +195,19 @@ def plain_line_styles(
             prefix_style = styles.error_text_style
         else:
             base_style = (
-                styles.commentary_text_style if entry.layer == "commentary" else styles.final_text_style
+                styles.commentary_text_style
+                if entry.layer == "commentary"
+                else styles.final_text_style
             )
             prefix_style = (
-                styles.commentary_prefix_style if entry.layer == "commentary" else styles.final_prefix_style
+                styles.commentary_prefix_style
+                if entry.layer == "commentary"
+                else styles.final_prefix_style
             )
         spans = [(0, len(line_text), base_style)]
-        if line_text.startswith(TRANSCRIPT_MESSAGE_PREFIX):
-            spans.append((0, len(TRANSCRIPT_MESSAGE_PREFIX), prefix_style))
+        header_prefix = _header_prefix_for_line(line_text)
+        if header_prefix:
+            spans.append((0, len(header_prefix), prefix_style))
         return spans
     if entry.kind == "separator":
         return [(0, len(line_text), styles.separator_text_style)]
@@ -153,7 +220,11 @@ def plain_line_styles(
             (
                 0,
                 len(line_text),
-                styles.error_detail_style if entry.status == "error" else styles.activity_detail_style,
+                (
+                    styles.error_detail_style
+                    if entry.status == "error"
+                    else styles.activity_detail_style
+                ),
             ),
             (2, 5, styles.tree_prefix_style),
         ]
@@ -162,7 +233,11 @@ def plain_line_styles(
             (
                 0,
                 len(line_text),
-                styles.error_detail_style if entry.status == "error" else styles.activity_detail_style,
+                (
+                    styles.error_detail_style
+                    if entry.status == "error"
+                    else styles.activity_detail_style
+                ),
             ),
             (2, 5, styles.tree_prefix_style),
         ]
@@ -171,17 +246,24 @@ def plain_line_styles(
             (
                 0,
                 len(line_text),
-                styles.error_detail_style if entry.status == "error" else styles.activity_detail_style,
+                (
+                    styles.error_detail_style
+                    if entry.status == "error"
+                    else styles.activity_detail_style
+                ),
             )
         ]
     base_style = activity_header_style(entry, line_index, styles=styles)
     spans = [(0, len(line_text), base_style)]
-    if line_text.startswith(TRANSCRIPT_MESSAGE_PREFIX):
-        spans.append((0, len(TRANSCRIPT_MESSAGE_PREFIX), styles.activity_prefix_style))
+    header_prefix = _header_prefix_for_line(line_text)
+    if header_prefix:
+        spans.append((0, len(header_prefix), styles.activity_prefix_style))
     return spans
 
 
-def activity_header_style(entry: "TranscriptEntry", line_index: int, *, styles: ThemeStyles) -> RichStyle:
+def activity_header_style(
+    entry: TranscriptEntry, line_index: int, *, styles: ThemeStyles
+) -> RichStyle:
     if entry.status == "error":
         return styles.error_text_style
     if entry.layer == "web":
@@ -213,7 +295,9 @@ def markdown_line_styles(
         start = max(0, min(span.start, len(line_text)))
         end = max(0, min(span.end, len(line_text)))
         if end > start:
-            styled_spans.append((start, end, (base_style + style) if merge_base_semantics else style))
+            styled_spans.append(
+                (start, end, (base_style + style) if merge_base_semantics else style)
+            )
     return styled_spans
 
 

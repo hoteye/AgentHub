@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 from cli.agent_cli.core.provider_session import ProviderSessionResult
 from cli.agent_cli.debug_timeline import log_timeline, timeline_debug_enabled
-from cli.agent_cli.models import ResponseInputItem, response_item_text
-from cli.agent_cli.models_turn_events_runtime import native_web_search_turn_item_from_response_item
+from cli.agent_cli.models import response_item_text
+from cli.agent_cli.providers.adapters import (
+    openai_responses_stream_event_runtime,
+    openai_responses_stream_recovery_runtime,
+)
 from cli.agent_cli.providers.adapters.openai_responses_output import (
-    _provider_tool_call_from_payload,
-    _stream_item_to_dict,
     _json_ready,
     _summarize_response_output,
     extract_responses_followup_items,
@@ -18,134 +20,54 @@ from cli.agent_cli.providers.adapters.openai_responses_result_runtime import (
     has_provider_tool_response_items,
     provider_native_continuation_trace,
 )
+from cli.agent_cli.providers.adapters.openai_responses_stream_turn_events_runtime import (
+    is_terminal_stream_response as _is_terminal_stream_response,
+)
+from cli.agent_cli.providers.adapters.openai_responses_stream_turn_events_runtime import (
+    native_web_search_started_event as _native_web_search_started_event,
+)
+from cli.agent_cli.providers.adapters.openai_responses_stream_turn_events_runtime import (
+    response_item_turn_event,
+)
 from cli.agent_cli.providers.token_usage_runtime import usage_from_provider_response
-from cli.agent_cli.providers.adapters import openai_responses_stream_event_runtime
-from cli.agent_cli.providers.adapters import openai_responses_stream_recovery_runtime
-
 
 _STREAM_CLOSED_BEFORE_COMPLETED = "stream closed before response.completed"
-_PARTIAL_TOOL_CALL_ITEM_TYPES = openai_responses_stream_recovery_runtime._PARTIAL_TOOL_CALL_ITEM_TYPES
+_PARTIAL_TOOL_CALL_ITEM_TYPES = (
+    openai_responses_stream_recovery_runtime._PARTIAL_TOOL_CALL_ITEM_TYPES
+)
 _followup_item_signature = openai_responses_stream_recovery_runtime.followup_item_signature
 
 
-def _is_terminal_stream_response(response: Any) -> bool:
-    if response is None:
-        return False
-    status = str(getattr(response, "status", "") or "").strip().lower()
-    if status in {"completed", "incomplete", "failed"}:
-        return True
-    if str(getattr(response, "id", "") or "").strip():
-        if bool(list(getattr(response, "output", []) or [])):
-            return True
-        if str(getattr(response, "output_text", "") or "").strip():
-            return True
-    return False
-
-
-def _native_web_search_started_event(event: Any) -> Dict[str, Any] | None:
-    raw_item = _stream_item_to_dict(getattr(event, "item", None))
-    if not isinstance(raw_item, dict):
-        return None
-    if str(raw_item.get("type") or "").strip() != "web_search_call":
-        return None
-    action = raw_item.get("action")
-    query_text = ""
-    if isinstance(action, dict):
-        query_text = str(action.get("query") or "").strip()
-        if not query_text:
-            queries = action.get("queries")
-            if isinstance(queries, list):
-                for entry in queries:
-                    text = str(entry or "").strip()
-                    if text:
-                        query_text = text
-                        break
-    item_id = str(raw_item.get("id") or f"stream_web_search_{getattr(event, 'output_index', 0)}").strip()
-    item: Dict[str, Any] = {
-        "id": item_id,
-        "type": "web_search_call",
-        "status": "in_progress",
-        "search_phase": "search_dispatched",
-    }
-    if isinstance(action, dict):
-        item["action"] = dict(action)
-    if query_text:
-        item["query"] = query_text
-    return {"type": "item.started", "item": item}
-
-
 _native_web_search_state_key = openai_responses_stream_recovery_runtime.native_web_search_state_key
-_remember_native_web_search_item_id = openai_responses_stream_recovery_runtime.remember_native_web_search_item_id
-_remember_native_web_search_pending_item = openai_responses_stream_recovery_runtime.remember_native_web_search_pending_item
-_drop_pending_native_web_search_item = openai_responses_stream_recovery_runtime.drop_pending_native_web_search_item
-_hydrate_native_web_search_done_item_id = openai_responses_stream_recovery_runtime.hydrate_native_web_search_done_item_id
-_recover_pending_native_web_search_items = openai_responses_stream_recovery_runtime.recover_pending_native_web_search_items
-_recover_pending_tool_call_items = openai_responses_stream_recovery_runtime.recover_pending_tool_call_items
-_recover_pending_message_items = openai_responses_stream_recovery_runtime.recover_pending_message_items
-
-
-def response_item_turn_event(item: ResponseInputItem, *, item_id: str) -> Dict[str, Any] | None:
-    item_type = str(getattr(item, "item_type", "") or "").strip().lower()
-    content = getattr(item, "content", None)
-    content_types = {
-        str(entry.get("type") or "").strip().lower()
-        for entry in list(content or [])
-        if isinstance(entry, dict)
-    } if isinstance(content, list) else set()
-    text = response_item_text(item).strip()
-    if item_type == "reasoning" or "reasoning" in content_types:
-        if not text:
-            return None
-        extra = dict(getattr(item, "extra", {}) or {})
-        event_item: Dict[str, Any] = {
-            "id": item_id,
-            "type": "reasoning",
-            "text": text,
-        }
-        for key in ("status", "summary", "encrypted_content"):
-            value = extra.get(key)
-            if value not in (None, ""):
-                event_item[key] = value
-        provider_item_id = str(extra.get("id") or "").strip()
-        if provider_item_id:
-            event_item["provider_item_id"] = provider_item_id
-        return {
-            "type": "item.completed",
-            "item": event_item,
-        }
-    if item_type == "web_search_call":
-        return {
-            "type": "item.completed",
-            "item": native_web_search_turn_item_from_response_item(
-                item,
-                item_id=item_id,
-                search_phase="search_results_received",
-            ),
-        }
-    if item_type == "message" or str(getattr(item, "role", "") or "").strip().lower() == "assistant":
-        if not text:
-            return None
-        event_item: Dict[str, Any] = {
-            "id": item_id,
-            "type": "agent_message",
-            "text": text,
-        }
-        phase = str((getattr(item, "extra", {}) or {}).get("phase") or "").strip().lower()
-        if phase:
-            event_item["phase"] = phase
-        return {
-            "type": "item.completed",
-            "item": event_item,
-        }
-    return None
+_remember_native_web_search_item_id = (
+    openai_responses_stream_recovery_runtime.remember_native_web_search_item_id
+)
+_remember_native_web_search_pending_item = (
+    openai_responses_stream_recovery_runtime.remember_native_web_search_pending_item
+)
+_drop_pending_native_web_search_item = (
+    openai_responses_stream_recovery_runtime.drop_pending_native_web_search_item
+)
+_hydrate_native_web_search_done_item_id = (
+    openai_responses_stream_recovery_runtime.hydrate_native_web_search_done_item_id
+)
+_recover_pending_native_web_search_items = (
+    openai_responses_stream_recovery_runtime.recover_pending_native_web_search_items
+)
+_recover_pending_tool_call_items = (
+    openai_responses_stream_recovery_runtime.recover_pending_tool_call_items
+)
+_recover_pending_message_items = (
+    openai_responses_stream_recovery_runtime.recover_pending_message_items
+)
 
 
 def consume_stream(
     session: Any,
     stream: Any,
     *,
-    turn_event_callback: Callable[[Dict[str, Any]], None],
-    initial_input_items: Optional[List[Dict[str, Any]]] = None,
+    turn_event_callback: Callable[[dict[str, Any]], None],
+    initial_input_items: list[dict[str, Any]] | None = None,
 ) -> ProviderSessionResult:
     interrupt_requested = getattr(session, "_is_interrupt_requested", None)
 
@@ -160,7 +82,7 @@ def consume_stream(
     response = None
     stream_completed = False
     get_final_response = getattr(stream, "get_final_response", None)
-    state: Dict[str, Any] = {
+    state: dict[str, Any] = {
         "response_items": [],
         "tool_calls": [],
         "followup_items": [],
@@ -276,7 +198,9 @@ def consume_stream(
                 openai_responses_stream_event_runtime.response_output_item_done(
                     event,
                     state=state,
-                    response_item_turn_event_fn=lambda item, item_id: response_item_turn_event(item, item_id=item_id),
+                    response_item_turn_event_fn=lambda item, item_id: response_item_turn_event(
+                        item, item_id=item_id
+                    ),
                     turn_event_callback=turn_event_callback,
                     timeline_debug_enabled_fn=timeline_debug_enabled,
                     log_timeline_fn=log_timeline,

@@ -1,22 +1,23 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
+from typing import Any
 
 from rich.style import Style as RichStyle
 
 from cli.agent_cli.models import ActivityEvent, PromptAttachment
 from cli.agent_cli.ui import transcript_history_runtime
+from cli.agent_cli.ui import transcript_visual_rendering as _transcript_visual_rendering
 from cli.agent_cli.ui.theme import (
-    COMPLETION_TIME_STYLE as THEME_COMPLETION_TIME_STYLE,
-    ACCENT_CYAN,
-    ACCENT_CYAN_SOFT,
-    ERROR,
-    ERROR_SOFT,
     ACCENT_BLOCKQUOTE,
     ACCENT_CODE,
+    ACCENT_CYAN,
+    ACCENT_CYAN_SOFT,
     ACCENT_LINK,
     ACCENT_ORDERED_MARKER,
+    ERROR,
+    ERROR_SOFT,
     SYNTAX_BUILTIN,
     SYNTAX_COMMENT,
     SYNTAX_KEYWORD,
@@ -33,11 +34,14 @@ from cli.agent_cli.ui.theme import (
     TRANSCRIPT_USER_PREFIX,
     USER_SURFACE_BG,
 )
+from cli.agent_cli.ui.theme import (
+    COMPLETION_TIME_STYLE as THEME_COMPLETION_TIME_STYLE,
+)
 from cli.agent_cli.ui.transcript_formatting import (
     exploration_detail_item,
-    format_exploration_activity_lines,
     format_activity_detail_lines,
     format_activity_summary,
+    format_exploration_activity_lines,
     format_file_activity_lines,
     format_patch_activity_lines,
     format_plan_steps,
@@ -45,7 +49,7 @@ from cli.agent_cli.ui.transcript_formatting import (
     format_web_activity_lines,
     strip_activity_prefix,
 )
-from cli.agent_cli.ui import transcript_visual_rendering as _transcript_visual_rendering
+from cli.agent_cli.ui.transcript_structured_runtime import separator_payload
 
 
 @dataclass(slots=True)
@@ -59,6 +63,7 @@ class TranscriptEntry:
     expanded_lines: list[str] | None = None
     expanded: bool = False
     raw_content: str | None = None
+    structured: dict[str, Any] | None = None
     render_mode: str = "plain"
     entry_id: str = ""
     created_at: float = 0.0
@@ -124,7 +129,6 @@ _IMAGE_ATTACHMENT_EXTENSIONS = {
 }
 
 
-
 def blank_entry() -> TranscriptEntry:
     return TranscriptEntry(kind="blank", layer="layout", lines=[""])
 
@@ -141,11 +145,14 @@ def final_separator_entry(label: str = "") -> TranscriptEntry:
         layer="separator",
         lines=[plain],
         raw_content=text,
+        structured=separator_payload(text),
         render_mode="separator",
     )
 
 
-def user_message_entry(content: str, *, attachments: list[PromptAttachment] | None = None) -> TranscriptEntry:
+def user_message_entry(
+    content: str, *, attachments: list[PromptAttachment] | None = None
+) -> TranscriptEntry:
     return transcript_history_runtime.user_message_entry(
         TranscriptEntry,
         content=content,
@@ -208,7 +215,9 @@ def activity_entry(event: ActivityEvent) -> TranscriptEntry | None:
 
 
 def activity_key(event: ActivityEvent) -> str | None:
-    return transcript_history_runtime.activity_key(event, strip_activity_prefix_fn=strip_activity_prefix)
+    return transcript_history_runtime.activity_key(
+        event, strip_activity_prefix_fn=strip_activity_prefix
+    )
 
 
 def should_include_activity_detail(event: ActivityEvent) -> bool:
@@ -238,6 +247,8 @@ def _strip_image_attachment_references(content: str) -> str:
         content,
         inline_attachment_re=_INLINE_ATTACHMENT_RE,
     )
+
+
 RenderedTranscript = _transcript_visual_rendering.RenderedTranscript
 render_transcript_entries = _transcript_visual_rendering.render_transcript_entries
 render_transcript_visual_entries = _transcript_visual_rendering.render_transcript_visual_entries

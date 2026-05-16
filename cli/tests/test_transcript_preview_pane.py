@@ -97,6 +97,27 @@ def test_target_at_line_column_ignores_missing_file(tmp_path) -> None:
     assert target is None
 
 
+def test_target_at_line_column_ignores_overlong_file_like_token(tmp_path) -> None:
+    line = "40s" + ("─" * 600)
+
+    target = target_at_line_column(line, 10, workspace_roots=[tmp_path])
+
+    assert target is None
+
+
+def test_target_at_line_column_ignores_path_exists_oserror(tmp_path, monkeypatch) -> None:
+    line = "open README.md now"
+
+    def raise_oserror(self):
+        raise OSError(36, "File name too long")
+
+    monkeypatch.setattr("pathlib.Path.exists", raise_oserror)
+
+    target = target_at_line_column(line, line.index("README"), workspace_roots=[tmp_path])
+
+    assert target is None
+
+
 def test_update_hover_target_underlines_only_target_text(tmp_path, monkeypatch) -> None:
     file_path = tmp_path / "README.md"
     file_path.write_text("hello\n", encoding="utf-8")

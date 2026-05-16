@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from cli.agent_cli.models import ActivityEvent
 from cli.agent_cli.ui.transcript_history import TranscriptEntry
@@ -11,7 +12,9 @@ def command_execution_exploration_entry(
     *,
     item_key: str | None,
     command_execution_exploration_summaries_fn: Callable[[dict[str, object]], list[Any] | None],
-    merge_exploration_detail_items_fn: Callable[[list[tuple[str, str]], tuple[str, str]], list[tuple[str, str]]],
+    merge_exploration_detail_items_fn: Callable[
+        [list[tuple[str, str]], tuple[str, str]], list[tuple[str, str]]
+    ],
     render_exploration_entry_lines_fn: Callable[[list[tuple[str, str]], str], list[str]],
 ) -> TranscriptEntry | None:
     status_text = str(item.get("status") or "").strip().lower()
@@ -37,6 +40,13 @@ def command_execution_exploration_entry(
         status=status,
         activity_key=item_key,
         exploration_details=details,
+        structured={
+            "type": "activity",
+            "name": "command_exploration",
+            "state": "running" if status == "running" else "completed",
+            "title": "Command exploration",
+            "metadata": {"details": list(details)},
+        },
         render_mode="plain",
     )
 

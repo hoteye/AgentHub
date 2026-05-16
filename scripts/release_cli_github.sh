@@ -302,14 +302,65 @@ run_local_verify() {
     "$root/scripts/release_verify.sh"
 }
 
+next_patch_version() {
+  local version="$1"
+  "$PYTHON_BIN" - "$version" <<'PY'
+from __future__ import annotations
+
+import re
+import sys
+
+version = str(sys.argv[1] or "").strip()
+match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version)
+if not match:
+    print("the next release version")
+else:
+    major, minor, patch = match.groups()
+    print(f"{major}.{minor}.{int(patch) + 1}")
+PY
+}
+
+source_release_commit_for_version() {
+  local version="$1"
+  [[ -d "$SOURCE_ROOT/.git" ]] || return 0
+  git -C "$SOURCE_ROOT" log \
+    --fixed-strings \
+    --grep "Release AgentHub CLI $version" \
+    --format='%H' \
+    -n 1
+}
+
+release_tag_conflict_message() {
+  local version="$1"
+  local tag="$2"
+  local location="$3"
+  local message="$location public tag already exists: $tag"
+  local release_commit count short_commit suggested_version
+
+  release_commit="$(source_release_commit_for_version "$version" || true)"
+  if [[ -n "$release_commit" ]]; then
+    count="$(git -C "$SOURCE_ROOT" rev-list --count "${release_commit}..HEAD" 2>/dev/null || printf '0')"
+    short_commit="${release_commit:0:9}"
+    if [[ "$count" =~ ^[0-9]+$ ]] && ((count > 0)); then
+      suggested_version="$(next_patch_version "$version")"
+      message+="
+source HEAD has $count commit(s) after source release commit $short_commit for $version.
+bump cli/agent_cli/__init__.py and CHANGELOG.md to $suggested_version, then rerun."
+    fi
+  fi
+
+  printf '%s\n' "$message"
+}
+
 check_tag_available() {
-  local tag="$1"
+  local version="$1"
+  local tag="$2"
   if git -C "$PUBLISH_ROOT" rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-    [[ "$ALLOW_EXISTING_TAG" == "1" ]] || fail "local public tag already exists: $tag"
+    [[ "$ALLOW_EXISTING_TAG" == "1" ]] || fail "$(release_tag_conflict_message "$version" "$tag" "local")"
   fi
   if [[ "$PUSH" == "1" ]]; then
     if git -C "$PUBLISH_ROOT" ls-remote --exit-code --tags "$PUBLIC_REMOTE" "$tag" >/dev/null 2>&1; then
-      fail "remote tag already exists: $tag"
+      fail "$(release_tag_conflict_message "$version" "$tag" "remote")"
     fi
   fi
 }
@@ -331,7 +382,7 @@ commit_public_tree() {
   fi
 
   if git -C "$PUBLISH_ROOT" rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-    [[ "$ALLOW_EXISTING_TAG" == "1" ]] || fail "local public tag already exists after commit: $tag"
+    [[ "$ALLOW_EXISTING_TAG" == "1" ]] || fail "$(release_tag_conflict_message "$version" "$tag" "local")"
   else
     git -C "$PUBLISH_ROOT" tag "$tag"
   fi
@@ -489,7 +540,7 @@ main() {
 
   log "Validate release version"
   validate_release_version "$release_source" "$tag" "$notes"
-  check_tag_available "$tag"
+  check_tag_available "$version" "$tag"
   printf 'version=%s\n' "$version"
   printf 'tag=%s\n' "$tag"
   printf 'release_source=%s\n' "$release_source"

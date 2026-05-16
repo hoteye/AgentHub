@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 from pathlib import Path
 
@@ -30,40 +29,25 @@ DEFAULT_CODEX_HOME = Path.home() / ".codex"
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
 try:
-    from cli.scripts.benchmark_emptydir_ab_model_io_helpers import (
-        CommandResult,
-        RunSummary,
-        SNAPSHOT_ENV_KEYS,
-        _agenthub_detail,
-        _auth_snapshot,
-        _codex_detail,
-        _env_snapshot,
-        _id_shape,
-        _iso_now,
-        _load_api_key,
-        _payload_sha256,
-        _preview_text,
-        _prompt_preview,
-        _read_json,
-        _read_jsonl,
-        _read_prompt,
-        _stable_json_text,
-        _text_file_snapshot,
-        _workspace_file_inventory,
-        _write_json,
-        _write_text,
-    )
     from cli.scripts.benchmark_emptydir_ab_layer_helpers import (
-        _build_agenthub_tool_chain,
-        _build_codex_tool_chain,
         _build_request_raw_layer,
         _build_tool_call_chain_layer,
         _build_tool_schema_layer,
         _build_workspace_side_effects_layer,
-        _inventory_signature,
-        _normalize_tool_entries,
-        _request_raw_candidates,
-        _select_request_raw_candidate,
+    )
+    from cli.scripts.benchmark_emptydir_ab_model_io_helpers import (
+        CommandResult,
+        _load_api_key,
+        _read_prompt,
+    )
+    from cli.scripts.benchmark_emptydir_ab_reporting_helpers import (
+        _write_run_report,
+    )
+    from cli.scripts.benchmark_emptydir_ab_runner_runtime import (
+        _build_agenthub_command as _build_agenthub_command_impl,
+    )
+    from cli.scripts.benchmark_emptydir_ab_runner_runtime import (
+        _build_codex_command as _build_codex_command_impl,
     )
     from cli.scripts.benchmark_emptydir_ab_runtime_helpers import (
         _build_agenthub_env,
@@ -71,52 +55,36 @@ try:
         _build_agenthub_project_local_config,
         _build_codex_home,
         _default_codex_provider_id,
-        _is_official_openai_base_url,
-        _parse_agenthub_output,
-        _parse_codex_output,
-        _print_summary,
+    )
+    from cli.scripts.benchmark_emptydir_ab_runtime_helpers import (
         _run_command as _runtime_run_command,
+    )
+    from cli.scripts.benchmark_emptydir_ab_runtime_helpers import (
         _run_validation as _runtime_run_validation,
+    )
+    from cli.scripts.benchmark_emptydir_ab_runtime_helpers import (
         parse_args as _runtime_parse_args,
     )
-    from cli.scripts.benchmark_emptydir_ab_reporting_helpers import (
-        _write_run_report,
-    )
 except ModuleNotFoundError:  # pragma: no cover - direct script path
-    from benchmark_emptydir_ab_model_io_helpers import (  # type: ignore[no-redef]
-        CommandResult,
-        RunSummary,
-        SNAPSHOT_ENV_KEYS,
-        _agenthub_detail,
-        _auth_snapshot,
-        _codex_detail,
-        _env_snapshot,
-        _id_shape,
-        _iso_now,
-        _load_api_key,
-        _payload_sha256,
-        _preview_text,
-        _prompt_preview,
-        _read_json,
-        _read_jsonl,
-        _read_prompt,
-        _stable_json_text,
-        _text_file_snapshot,
-        _workspace_file_inventory,
-        _write_json,
-        _write_text,
-    )
     from benchmark_emptydir_ab_layer_helpers import (  # type: ignore[no-redef]
-        _build_agenthub_tool_chain,
-        _build_codex_tool_chain,
         _build_request_raw_layer,
         _build_tool_call_chain_layer,
         _build_tool_schema_layer,
         _build_workspace_side_effects_layer,
-        _inventory_signature,
-        _normalize_tool_entries,
-        _request_raw_candidates,
-        _select_request_raw_candidate,
+    )
+    from benchmark_emptydir_ab_model_io_helpers import (  # type: ignore[no-redef]
+        CommandResult,
+        _load_api_key,
+        _read_prompt,
+    )
+    from benchmark_emptydir_ab_reporting_helpers import (  # type: ignore[no-redef]
+        _write_run_report,
+    )
+    from benchmark_emptydir_ab_runner_runtime import (  # type: ignore[no-redef]
+        _build_agenthub_command as _build_agenthub_command_impl,
+    )
+    from benchmark_emptydir_ab_runner_runtime import (
+        _build_codex_command as _build_codex_command_impl,
     )
     from benchmark_emptydir_ab_runtime_helpers import (  # type: ignore[no-redef]
         _build_agenthub_env,
@@ -124,17 +92,32 @@ except ModuleNotFoundError:  # pragma: no cover - direct script path
         _build_agenthub_project_local_config,
         _build_codex_home,
         _default_codex_provider_id,
-        _is_official_openai_base_url,
-        _parse_agenthub_output,
-        _parse_codex_output,
-        _print_summary,
+    )
+    from benchmark_emptydir_ab_runtime_helpers import (
         _run_command as _runtime_run_command,
+    )
+    from benchmark_emptydir_ab_runtime_helpers import (
         _run_validation as _runtime_run_validation,
+    )
+    from benchmark_emptydir_ab_runtime_helpers import (
         parse_args as _runtime_parse_args,
     )
-    from benchmark_emptydir_ab_reporting_helpers import (  # type: ignore[no-redef]
-        _write_run_report,
-    )
+
+__all__ = [
+    "CommandResult",
+    "REPO_ROOT",
+    "_agenthub_command",
+    "_build_agenthub_env",
+    "_build_agenthub_home",
+    "_build_request_raw_layer",
+    "_build_tool_call_chain_layer",
+    "_build_tool_schema_layer",
+    "_build_workspace_side_effects_layer",
+    "_codex_command",
+    "_default_codex_provider_id",
+    "main",
+    "parse_args",
+]
 
 
 def _run_command(
@@ -187,28 +170,16 @@ def _agenthub_command(
     main_path: Path,
     network_access: str,
 ) -> CommandResult:
-    command = [
-        sys.executable,
-        str(main_path),
-        "--headless",
-        "--json",
-        "--approval-policy",
-        "never",
-        "--sandbox-mode",
-        "workspace-write",
-        "--network-access",
-        network_access,
-        "--prompt",
-        prompt,
-    ]
-    return _run_command(
-        name="agenthub",
-        command=command,
-        cwd=REPO_ROOT,
+    return _build_agenthub_command_impl(
+        prompt=prompt,
+        workspace=workspace,
         env=env,
-        stdout_path=out_dir / "agenthub.stdout.json",
-        stderr_path=out_dir / "agenthub.stderr.log",
         timeout_seconds=timeout_seconds,
+        out_dir=out_dir,
+        main_path=main_path,
+        network_access=network_access,
+        run_command=_run_command,
+        repo_root=REPO_ROOT,
     )
 
 
@@ -221,33 +192,15 @@ def _codex_command(
     out_dir: Path,
     codex_bin: Path,
 ) -> CommandResult:
-    command = [
-        str(codex_bin),
-        "exec",
-        "--json",
-        "--skip-git-repo-check",
-        "--sandbox",
-        "workspace-write",
-        "-C",
-        str(workspace),
-        "-m",
-        env["BENCH_MODEL"],
-    ]
-    provider_override = str(env.get("CODEX_PROVIDER_OVERRIDE") or "").strip()
-    if provider_override:
-        command.extend(["-c", f'model_provider="{provider_override}"'])
-    reasoning_effort = str(env.get("BENCH_REASONING_EFFORT") or "").strip()
-    if reasoning_effort:
-        command.extend(["-c", f'model_reasoning_effort="{reasoning_effort}"'])
-    command.append(prompt)
-    return _run_command(
-        name="codex",
-        command=command,
-        cwd=DEFAULT_CODEX_REF_ROOT,
+    return _build_codex_command_impl(
+        prompt=prompt,
+        workspace=workspace,
         env=env,
-        stdout_path=out_dir / "codex.stdout.jsonl",
-        stderr_path=out_dir / "codex.stderr.log",
         timeout_seconds=timeout_seconds,
+        out_dir=out_dir,
+        codex_bin=codex_bin,
+        run_command=_run_command,
+        codex_ref_root=DEFAULT_CODEX_REF_ROOT,
     )
 
 
@@ -278,13 +231,17 @@ def main() -> int:
         auth_json_override=args.auth_json,
     )
     api_key = _load_api_key(source_agenthub_auth_path, args.api_key_name)
-    codex_provider_id = str(args.codex_provider_id or "").strip() or _default_codex_provider_id(args.openai_base_url)
+    codex_provider_id = str(args.codex_provider_id or "").strip() or _default_codex_provider_id(
+        args.openai_base_url
+    )
     codex_bin = Path(args.codex_bin).resolve()
     if not codex_bin.exists():
         raise SystemExit(f"missing --codex-bin target: {codex_bin}")
 
-    harness_root = Path(args.out_dir).resolve() if args.out_dir else Path(
-        tempfile.mkdtemp(prefix="agenthub_emptydir_ab_", dir="/tmp")
+    harness_root = (
+        Path(args.out_dir).resolve()
+        if args.out_dir
+        else Path(tempfile.mkdtemp(prefix="agenthub_emptydir_ab_", dir="/tmp"))
     )
     harness_root.mkdir(parents=True, exist_ok=True)
     agenthub_project_root = harness_root / "agenthub_project"

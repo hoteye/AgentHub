@@ -8,6 +8,11 @@ from cli.agent_cli.models import ActivityEvent
 from cli.agent_cli.runtime_core import activity_events_for_tool_event
 from cli.agent_cli.ui import TranscriptEntry, transcript_formatting_helpers_runtime
 from cli.agent_cli.ui.transcript_formatting import format_patch_activity_lines
+from cli.agent_cli.ui.transcript_structured_runtime import (
+    activity_payload,
+    message_payload,
+    reasoning_payload,
+)
 
 
 def _is_delegated_agent_item(event: dict[str, object], item: dict[str, object]) -> bool:
@@ -92,7 +97,11 @@ def turn_event_activity(
                 detail=f"query={query_text}" if query_text else "",
                 kind="web",
                 code="web.search",
-                params={"tool_name": tool_name, "query": query_text},
+                params={
+                    "tool_name": tool_name,
+                    "query": query_text,
+                    "web_search_outcome": str(item.get("search_phase") or "").strip(),
+                },
             )
         return ActivityEvent(
             title=f"Running {tool_name}",
@@ -151,6 +160,7 @@ def turn_event_entry(
             status="reasoning",
             activity_key=app._scope_activity_key(item_key),
             raw_content=text,
+            structured=reasoning_payload(text),
             render_mode="reasoning_markdown",
         )
     if item_type == "command_execution":
@@ -192,6 +202,7 @@ def turn_event_entry(
                         lines=approval_lines,
                         status=approval_activity.status,
                         activity_key=app._scope_activity_key(item_key),
+                        structured=activity_payload(approval_activity),
                         render_mode="tool_approval",
                     )
         special_entry = local_exec_like_mcp_tool_entry_fn(app, item, item_key=item_key)
@@ -241,6 +252,12 @@ def turn_event_entry(
             status="error" if status == "error" else phase,
             activity_key=app._scope_activity_key(item_key),
             raw_content=text,
+            structured=message_payload(
+                name="agent_message",
+                text=text,
+                state="error" if status == "error" else "completed",
+                metadata={"phase": phase},
+            ),
             render_mode="markdown",
         )
     if activity is None:
@@ -258,6 +275,9 @@ def turn_event_entry(
         expanded_lines=list(entry.expanded_lines) if entry.expanded_lines else None,
         expanded=entry.expanded,
         raw_content=entry.raw_content,
+        structured=(
+            dict(entry.structured) if isinstance(entry.structured, dict) else entry.structured
+        ),
         render_mode=entry.render_mode,
         search_text=entry.search_text,
     )

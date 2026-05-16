@@ -345,6 +345,12 @@ def main(
                     print(exit_summary, file=stdout or sys.stdout)
             return 130
         _startup_log("tui.run.end")
+        tui_exception = getattr(app, "_exception", None)
+        if tui_exception is not None:
+            _startup_log(
+                "tui.run.exception " f"{tui_exception.__class__.__name__}: {tui_exception!r}"
+            )
+            return 1
         if _tui_should_print_exit_summary(app, args):
             exit_summary = _tui_exit_summary_text(app)
             if exit_summary:

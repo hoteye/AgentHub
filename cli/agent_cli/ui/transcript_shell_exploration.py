@@ -1,23 +1,31 @@
 from __future__ import annotations
 
-from cli.agent_cli.models import ActivityEvent
 from cli.agent_cli.command_execution_summary_runtime import (
     CommandExecutionSummary as ParsedShellCommandSummary,
+)
+from cli.agent_cli.command_execution_summary_runtime import (
     command_execution_summaries_from_mapping,
+)
+from cli.agent_cli.models import ActivityEvent
+from cli.agent_cli.ui import (
+    transcript_shell_exploration_command_runtime,
+    transcript_shell_exploration_runtime,
 )
 from cli.agent_cli.ui.transcript_formatting import (
     merge_exploration_detail_items,
     render_exploration_entry_lines,
 )
-from cli.agent_cli.ui import transcript_shell_exploration_runtime
-from cli.agent_cli.ui import transcript_shell_exploration_command_runtime
 from cli.agent_cli.ui.transcript_history import TranscriptEntry
+from cli.agent_cli.ui.transcript_structured_runtime import command_exploration_payload
+
 
 def unwrap_shell_wrapped_command(command_text: str) -> str:
     return transcript_shell_exploration_command_runtime.unwrap_shell_wrapped_command(command_text)
 
 
-def command_execution_exploration_summaries(item: dict[str, object]) -> list[ParsedShellCommandSummary] | None:
+def command_execution_exploration_summaries(
+    item: dict[str, object]
+) -> list[ParsedShellCommandSummary] | None:
     summaries = command_execution_summaries_from_mapping(dict(item or {}))
     if not summaries:
         return None
@@ -50,7 +58,11 @@ def command_execution_exploration_entry(
     )
     if not details:
         return None
-    status = "running" if _command_execution_running_status(status_text, event_type=event_type) else "success"
+    status = (
+        "running"
+        if _command_execution_running_status(status_text, event_type=event_type)
+        else "success"
+    )
     lines = render_exploration_entry_lines(details, status=status)
     return TranscriptEntry(
         kind="activity",
@@ -59,6 +71,10 @@ def command_execution_exploration_entry(
         status=status,
         activity_key=item_key,
         exploration_details=details,
+        structured=command_exploration_payload(
+            details=details,
+            state="running" if status == "running" else "completed",
+        ),
         render_mode="plain",
     )
 
@@ -75,5 +91,11 @@ def command_execution_exploration_activity(
     summaries = command_execution_exploration_summaries(item)
     if not summaries:
         return None
-    projected_status_text = "in_progress" if _command_execution_running_status(status_text, event_type=event_type) else status_text
-    return transcript_shell_exploration_runtime.exploration_activity_event(summaries, status_text=projected_status_text)
+    projected_status_text = (
+        "in_progress"
+        if _command_execution_running_status(status_text, event_type=event_type)
+        else status_text
+    )
+    return transcript_shell_exploration_runtime.exploration_activity_event(
+        summaries, status_text=projected_status_text
+    )

@@ -3,43 +3,74 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 try:
+    from cli.scripts.benchmark_two_turn_multi_provider_worker_runtime import (
+        common_worker_command as _common_worker_command_impl,
+    )
+    from cli.scripts.benchmark_two_turn_multi_provider_worker_runtime import (
+        provider_home_report_fields as _provider_home_report_fields_impl,
+    )
+    from cli.scripts.benchmark_two_turn_multi_provider_worker_runtime import (
+        run_case_subprocess as _run_case_subprocess_impl,
+    )
+    from cli.scripts.benchmark_two_turn_multi_provider_worker_runtime import (
+        run_worker as _run_worker_impl,
+    )
     from cli.scripts.benchmark_two_turn_output_helpers import (
-        health_for_case as _health_for_case,
         print_table as _print_table,
+    )
+    from cli.scripts.benchmark_two_turn_output_helpers import (
         summary_for_results as _summary_for_results,
-        turn_payload as _turn_payload,
     )
     from cli.scripts.benchmark_two_turn_worker_helpers import (
         BenchmarkCase,
-        common_worker_command as _common_worker_command_impl,
+    )
+    from cli.scripts.benchmark_two_turn_worker_helpers import (
         default_cases as _default_cases,
-        decode_worker_payload as _decode_worker_payload,
+    )
+    from cli.scripts.benchmark_two_turn_worker_helpers import (
         parse_case as _parse_case,
     )
+    from cli.scripts.script_runtime_helpers import resolve_effective_script_provider_home_dir
 except ModuleNotFoundError:
+    from benchmark_two_turn_multi_provider_worker_runtime import (  # type: ignore[no-redef]
+        common_worker_command as _common_worker_command_impl,
+    )
+    from benchmark_two_turn_multi_provider_worker_runtime import (
+        provider_home_report_fields as _provider_home_report_fields_impl,
+    )
+    from benchmark_two_turn_multi_provider_worker_runtime import (
+        run_case_subprocess as _run_case_subprocess_impl,
+    )
+    from benchmark_two_turn_multi_provider_worker_runtime import (
+        run_worker as _run_worker_impl,
+    )
     from benchmark_two_turn_output_helpers import (  # type: ignore[no-redef]
-        health_for_case as _health_for_case,
         print_table as _print_table,
+    )
+    from benchmark_two_turn_output_helpers import (
         summary_for_results as _summary_for_results,
-        turn_payload as _turn_payload,
     )
     from benchmark_two_turn_worker_helpers import (  # type: ignore[no-redef]
         BenchmarkCase,
-        common_worker_command as _common_worker_command_impl,
+    )
+    from benchmark_two_turn_worker_helpers import (
         default_cases as _default_cases,
-        decode_worker_payload as _decode_worker_payload,
+    )
+    from benchmark_two_turn_worker_helpers import (
         parse_case as _parse_case,
+    )
+    from script_runtime_helpers import (
+        resolve_effective_script_provider_home_dir,  # type: ignore[no-redef]
     )
 
 
@@ -50,6 +81,8 @@ DEFAULT_MAX_WORKERS = 4
 DEFAULT_FIRST_PROMPT = "今天几号？"
 DEFAULT_SECOND_PROMPT = "明天呢？"
 DEFAULT_TIMEZONE = "Asia/Shanghai"
+
+
 def _ensure_import_paths() -> None:
     for candidate in (str(REPO_ROOT), str(CLI_ROOT)):
         if candidate not in sys.path:
@@ -57,11 +90,6 @@ def _ensure_import_paths() -> None:
 
 
 _ensure_import_paths()
-
-from cli.scripts.script_runtime_helpers import (
-    normalize_optional_provider_home_override,
-    resolve_effective_script_provider_home_dir,
-)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -160,96 +188,25 @@ def _common_worker_command(
 ) -> list[str]:
     return _common_worker_command_impl(
         case,
-        script_path=Path(__file__).resolve(),
         first_prompt=first_prompt,
         second_prompt=second_prompt,
         timezone_name=timezone_name,
         current_datetime=current_datetime,
         provider_home=provider_home,
+        script_path=Path(__file__).resolve(),
     )
 
 
 def _provider_home_report_fields(provider_home: str) -> dict[str, str]:
-    normalized_provider_home = normalize_optional_provider_home_override(provider_home)
-    return {
-        "provider_home": str(
-            resolve_effective_script_provider_home_dir(
-                cwd=CLI_ROOT,
-                provider_home=normalized_provider_home,
-            )
-        ),
-        "provider_home_override": normalized_provider_home,
-        "provider_home_source": "explicit_override" if normalized_provider_home else "runtime_default",
-    }
+    return _provider_home_report_fields_impl(
+        provider_home,
+        cwd=CLI_ROOT,
+        resolve_provider_home_dir=resolve_effective_script_provider_home_dir,
+    )
 
 
 def _run_worker(args: argparse.Namespace) -> int:
-    _ensure_import_paths()
-    from cli.agent_cli.runtime import AgentCliRuntime
-    from cli.agent_cli.runtime_policy import RuntimePolicy
-
-    case = BenchmarkCase(provider=str(args.provider).strip(), model=str(args.model).strip())
-    if not case.provider or not case.model:
-        raise SystemExit("worker requires --provider and --model")
-
-    provider_home_override = normalize_optional_provider_home_override(args.provider_home)
-    for name, value in case.env_overrides(provider_home=provider_home_override).items():
-        os.environ[name] = value
-
-    fixed_now = datetime.fromisoformat(str(args.current_datetime).strip())
-    timezone_name = str(args.timezone or "").strip()
-    expected_today = fixed_now
-    expected_tomorrow = fixed_now + timedelta(days=1)
-    started = time.perf_counter()
-    payload: dict[str, Any] = {
-        "provider": case.provider,
-        "model": case.model,
-        "timezone": timezone_name,
-        "current_datetime": fixed_now.isoformat(),
-        **_provider_home_report_fields(str(args.provider_home or "")),
-    }
-    try:
-        runtime = AgentCliRuntime(
-            runtime_policy=RuntimePolicy.normalized(
-                approval_policy="never",
-                sandbox_mode="workspace-write",
-                web_search_mode="live",
-                network_access_enabled=True,
-            ),
-            current_dt_provider=lambda: fixed_now,
-        )
-        first_response = runtime.handle_prompt(str(args.first_prompt))
-        second_response = runtime.handle_prompt(str(args.second_prompt))
-        provider_status = dict(runtime.agent.provider_status() or {})
-        payload.update(
-            {
-                "provider_ready": provider_status.get("provider_ready"),
-                "provider_name": provider_status.get("provider_name"),
-                "provider_model": provider_status.get("provider_model"),
-                "provider_runtime_state": provider_status.get("provider_runtime_state"),
-                "provider_label": provider_status.get("provider_label"),
-                "turns": [
-                    _turn_payload(
-                        prompt=str(args.first_prompt),
-                        response=first_response,
-                        expected_date=expected_today,
-                    ),
-                    _turn_payload(
-                        prompt=str(args.second_prompt),
-                        response=second_response,
-                        expected_date=expected_tomorrow,
-                    ),
-                ],
-            }
-        )
-        payload["health"] = _health_for_case(payload)
-        payload["wall_ms"] = int((time.perf_counter() - started) * 1000)
-    except Exception as exc:
-        payload["health"] = "error"
-        payload["exception"] = f"{type(exc).__name__}: {exc}"
-        payload["wall_ms"] = int((time.perf_counter() - started) * 1000)
-    print(json.dumps(payload, ensure_ascii=False))
-    return 0
+    return _run_worker_impl(args, provider_home_reporter=_provider_home_report_fields)
 
 
 def _run_case_subprocess(
@@ -262,54 +219,18 @@ def _run_case_subprocess(
     timeout_seconds: float,
     provider_home: str,
 ) -> dict[str, Any]:
-    command = _common_worker_command(
+    return _run_case_subprocess_impl(
         case,
         first_prompt=first_prompt,
         second_prompt=second_prompt,
         timezone_name=timezone_name,
         current_datetime=current_datetime,
+        timeout_seconds=timeout_seconds,
         provider_home=provider_home,
+        cwd=CLI_ROOT,
+        run_command=subprocess.run,
+        script_path=Path(__file__).resolve(),
     )
-    env = dict(os.environ)
-    env.update(case.env_overrides(provider_home=provider_home))
-    started = time.perf_counter()
-    result: dict[str, Any] = {
-        "provider": case.provider,
-        "model": case.model,
-        "command": command,
-    }
-    try:
-        completed = subprocess.run(
-            command,
-            cwd=str(CLI_ROOT),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-        )
-    except subprocess.TimeoutExpired as exc:
-        result["timeout"] = True
-        result["health"] = "error"
-        result["wall_ms"] = int((time.perf_counter() - started) * 1000)
-        result["stdout_preview"] = str(exc.stdout or "").strip()[:400]
-        result["stderr"] = str(exc.stderr or "").strip()[:400]
-        return result
-
-    result["exit_code"] = int(completed.returncode)
-    result["wall_ms"] = int((time.perf_counter() - started) * 1000)
-    result["stderr"] = completed.stderr.strip()[:400]
-    try:
-        payload = _decode_worker_payload(completed.stdout)
-    except json.JSONDecodeError as exc:
-        result["health"] = "error"
-        result["parse_error"] = f"{type(exc).__name__}: {exc}"
-        result["stdout_preview"] = completed.stdout.strip()[:400]
-        return result
-
-    payload.setdefault("command", command)
-    payload["worker_wall_ms"] = payload.get("wall_ms")
-    payload["orchestrator_wall_ms"] = result["wall_ms"]
-    return payload
 
 
 def _orchestrate(args: argparse.Namespace) -> int:
@@ -407,7 +328,9 @@ def _orchestrate(args: argparse.Namespace) -> int:
         "summary": _summary_for_results(results),
     }
     if args.out:
-        Path(args.out).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        Path(args.out).write_text(
+            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:

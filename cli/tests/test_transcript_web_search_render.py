@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from cli.agent_cli.models import ToolEvent
+from dataclasses import replace
+
+from cli.agent_cli.models import ActivityEvent, ToolEvent
 from cli.agent_cli.runtime_core import activity_events_for_tool_event
-from cli.agent_cli.models import ActivityEvent
 from cli.agent_cli.ui.transcript_history import activity_entry, render_transcript_visual_entries
 
 
@@ -20,6 +21,11 @@ def test_web_search_activity_entry_uses_dedicated_render_mode() -> None:
     assert entry is not None
     assert entry.layer == "web"
     assert entry.render_mode == "web_search"
+    assert entry.structured is not None
+    assert entry.structured["type"] == "activity"
+    assert entry.structured["name"] == "web.search"
+    assert entry.structured["state"] == "completed"
+    assert entry.structured["output"] == "query=openai responses api weather routing"
     assert entry.lines == [
         "• Searched the web",
         "  └ openai responses api weather routing",
@@ -41,9 +47,34 @@ def test_web_search_visual_render_wraps_query_with_tree_prefix_consistently() ->
     rendered = render_transcript_visual_entries([entry], width=24)
 
     assert rendered.lines == [
-        "• Searched the web",
+        "⌕ Searched the web",
         "  └ openai responses api",
         "    weather routing",
+    ]
+
+
+def test_web_search_visual_render_uses_structured_block_before_legacy_lines() -> None:
+    entry = activity_entry(
+        ActivityEvent(
+            title="Native web search",
+            status="success",
+            kind="web",
+            code="web.search",
+            detail="query=北京 明天天气\ncount=1",
+            params={"query": "北京 明天天气", "backend": "native", "count": 1},
+        )
+    )
+
+    assert entry is not None
+    tampered = replace(entry, lines=["BROKEN LEGACY LINE"])
+    rendered = render_transcript_visual_entries([tampered], width=80)
+
+    assert rendered.lines == [
+        "⌕ Native web search",
+        "  │ state: search_results_received",
+        "  │ backend: native",
+        "  │ count: 1",
+        "  └ 北京 明天天气",
     ]
 
 

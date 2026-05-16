@@ -298,6 +298,7 @@ start_tmux_preview_layout_new_session() {
     fi
     tmux set-option -t "${session_name}" status off >/dev/null 2>&1 || true
     tmux set-option -t "${session_name}" mouse on >/dev/null 2>&1 || true
+    tmux set-option -t "${session_name}" remain-on-exit off >/dev/null 2>&1 || true
     tui_pane="$(tmux display-message -p -t "${session_name}:0.0" "#{pane_id}" 2>/dev/null || true)"
     child_command="$(tmux_child_command "" "${tui_pane}")"
     if ! tmux respawn-pane -k -t "${session_name}:0.0" -c "${STARTUP_CWD}" -- "${child_command}"; then
@@ -307,7 +308,13 @@ start_tmux_preview_layout_new_session() {
     fi
     tmux select-pane -t "${session_name}:0.0"
     debug_log "tmux.layout.new_session session=${session_name} no_preview"
-    tmux attach-session -t "${session_name}"
+    local attach_status=0
+    tmux attach-session -t "${session_name}" || attach_status=$?
+    if ((attach_status != 0)); then
+        debug_log "tmux.layout.new_session.attach_failed session=${session_name} status=${attach_status}"
+        tmux kill-session -t "${session_name}" >/dev/null 2>&1 || true
+        return 125
+    fi
 }
 
 usage() {

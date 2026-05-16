@@ -3,6 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from cli.agent_cli.models import ActivityEvent, activity_code
+from cli.agent_cli.ui.transcript_structured_runtime import (
+    activity_payload,
+    exploration_activity_payload,
+    todo_payload,
+)
 
 
 def activity_entry(
@@ -43,10 +48,17 @@ def activity_entry(
             layer="commentary",
             lines=lines,
             status=event.status,
+            structured=todo_payload(
+                todos=[{"text": step, "completed": False} for step in steps],
+                source="plan_activity",
+                state=str(event.status or "info"),
+            ),
             render_mode=render_mode,
         )
     if event.kind == "command_output":
-        lines = format_activity_detail_lines_fn(str(event.title or ""), stream=str(event.detail or "stdout"))
+        lines = format_activity_detail_lines_fn(
+            str(event.title or ""), stream=str(event.detail or "stdout")
+        )
         if not lines:
             return None
         return transcript_entry_cls(kind="activity", layer="tool", lines=lines, status=event.status)
@@ -112,6 +124,11 @@ def activity_entry(
         exploration_details=exploration_details,
         expanded_lines=full_lines if event.kind == "web" and full_lines != lines else None,
         render_mode=render_mode,
+        structured=(
+            exploration_activity_payload(normalized_event, details=exploration_details)
+            if exploration_details
+            else activity_payload(normalized_event, detail_text=detail_text)
+        ),
     )
 
 
@@ -132,11 +149,15 @@ def activity_key(event: ActivityEvent, *, strip_activity_prefix_fn: Any) -> str 
             subject = (
                 strip_activity_prefix_fn(title, "Running ")
                 if event.status == "running"
-                else strip_activity_prefix_fn(strip_activity_prefix_fn(title, "Ran "), "Command failed: ")
+                else strip_activity_prefix_fn(
+                    strip_activity_prefix_fn(title, "Ran "), "Command failed: "
+                )
             )
         return f"command:{subject.lower()}"
     if event.status == "running":
-        subject = str((event.params or {}).get("tool_name") or "").strip() or strip_activity_prefix_fn(title, "Running ")
+        subject = str(
+            (event.params or {}).get("tool_name") or ""
+        ).strip() or strip_activity_prefix_fn(title, "Running ")
         return f"{event.kind}:{subject.lower()}"
     return None
 
@@ -175,7 +196,9 @@ def should_skip_activity_entry(event: ActivityEvent) -> bool:
     return code.startswith("approval.request.")
 
 
-def normalized_activity_detail(event: ActivityEvent, *, should_include_activity_detail_fn: Any) -> str:
+def normalized_activity_detail(
+    event: ActivityEvent, *, should_include_activity_detail_fn: Any
+) -> str:
     if not should_include_activity_detail_fn(event):
         return ""
     raw = str(event.detail or "").strip()

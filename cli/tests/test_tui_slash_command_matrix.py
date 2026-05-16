@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import re
 import unittest
+from types import SimpleNamespace
 
 from cli.agent_cli.app import AgentCliApp, PromptComposer
 from cli.agent_cli.models import PromptAttachment
+from cli.agent_cli.runtime_core.command_handlers_core_helpers_runtime import (
+    handle_help_command,
+    shortcut_help_text,
+)
 from cli.agent_cli.slash_commands import slash_command_help_text, slash_command_specs
 from cli.agent_cli.slash_commands_pure_helpers_runtime import SLASH_COMMAND_SPECS
 from cli.agent_cli.slash_parser import parse_slash_invocation
@@ -15,6 +20,7 @@ from cli.agent_cli.ui.presentation_messages_slash import (
     _SLASH_COMMAND_ZH_CN_DESCRIPTIONS,
     SLASH_MESSAGES,
 )
+from cli.agent_cli.ui.presentation_messages_status import STATUS_MESSAGES
 from cli.agent_cli.ui.slash_completion_projection_helpers_runtime import _LOCALIZED_DESCRIPTIONS
 from cli.agent_cli.ui.theme import builtin_theme_ids
 
@@ -217,6 +223,21 @@ def test_slash_i18n_catalog_has_complete_non_english_locale_values() -> None:
     assert bad == []
 
 
+def test_status_help_shortcut_i18n_catalog_has_complete_locale_values() -> None:
+    help_shortcut_messages = {
+        key: values for key, values in STATUS_MESSAGES.items() if key.startswith("help.shortcuts.")
+    }
+    bad = [
+        (key, locale)
+        for key, values in help_shortcut_messages.items()
+        for locale in SUPPORTED_LOCALES
+        if not str(values.get(locale) or "").strip()
+    ]
+
+    assert help_shortcut_messages
+    assert bad == []
+
+
 def test_slash_argument_i18n_catalog_has_complete_locale_values() -> None:
     bad = [
         (key, locale)
@@ -258,14 +279,44 @@ def test_english_slash_catalog_and_help_are_cjk_free() -> None:
     values: list[str] = []
     for locale in (None, "en", "en-US"):
         values.append(slash_command_help_text(locale=locale, include_advanced=True))
+        values.append(shortcut_help_text(locale=locale))
         for spec in slash_command_specs(locale=locale, discoverable_only=False):
             values.extend([spec.usage, spec.description])
     for mapping in _LOCALIZED_DESCRIPTIONS.values():
         values.append(str(mapping.get("en") or ""))
+    for key, mapping in STATUS_MESSAGES.items():
+        if key.startswith("help.shortcuts."):
+            values.append(str(mapping.get("en") or ""))
 
     bad = [value for value in values if cjk.search(value)]
 
     assert bad == []
+
+
+def test_help_command_appends_localized_shortcuts() -> None:
+    runtime = SimpleNamespace(
+        presentation_locale="zh-CN",
+        tools=SimpleNamespace(_plugin_manager=None),
+    )
+
+    help_text, events = handle_help_command(runtime, arg_text="", slash_invocation=None)
+
+    assert events == []
+    assert help_text.splitlines()[0] == "可用命令："
+    assert "键盘快捷键：" in help_text
+    assert "  ctrl+c - 退出" in help_text
+    assert "  ctrl+tab - 切换到下一个 tab" in help_text
+    assert "keyboard shortcuts:" not in help_text
+
+
+def test_shortcut_help_reflects_current_tab_switch_bindings() -> None:
+    help_text = shortcut_help_text(locale="en")
+
+    assert "keyboard shortcuts:" in help_text
+    assert "  ctrl+tab - Switch to next tab" in help_text
+    assert "  ctrl+shift+tab - Switch to previous tab" in help_text
+    assert "ctrl+left" not in help_text
+    assert "ctrl+right" not in help_text
 
 
 def test_locale_aliases_are_used_for_slash_descriptions() -> None:

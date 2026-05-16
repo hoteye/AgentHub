@@ -21,6 +21,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import build_release_args_helpers as args_helpers  # noqa: E402
+import build_release_command_helpers as command_helpers  # noqa: E402
 import build_release_icon_helpers as icon_helpers  # noqa: E402
 import build_release_packaging_helpers as packaging_helpers  # noqa: E402
 import build_release_runtime_helpers as runtime_helpers  # noqa: E402
@@ -249,55 +250,25 @@ def runtime_data_mappings(
 def pyinstaller_command(
     *, bundle_name: str, mode: str, dist_dir: Path, build_dir: Path, spec_dir: Path
 ) -> list[str]:
-    root = repo_root()
-    cli = cli_root()
-    command = [
-        sys.executable,
-        "-m",
-        "PyInstaller",
-        "--noconfirm",
-        "--console",
-        "--name",
-        bundle_name,
-        "--distpath",
-        str(dist_dir),
-        "--workpath",
-        str(build_dir),
-        "--specpath",
-        str(spec_dir),
-        "--paths",
-        str(root),
-        "--paths",
-        str(cli),
-    ]
-    if platform.system().lower() == "windows":
-        command.extend(["--icon", str(agenthub_windows_icon_path(spec_dir))])
-    command.append("--onedir" if mode == "onedir" else "--onefile")
-    for module_name in PYINSTALLER_OPTIONAL_HEAVY_EXCLUDES:
-        command.extend(["--exclude-module", module_name])
-    for source, dest in runtime_data_mappings(root=root, cli=cli):
-        add_data_arg(command, source, dest)
-    add_collect(command, "cli.agent_cli")
-    for module_name in CANONICAL_CLI_DYNAMIC_HIDDEN_IMPORTS:
-        add_hidden_import(command, module_name)
-    for package_name in (
-        "textual",
-        "rich",
-        "openai",
-        "agent_cli",
-        "gateway",
-        "workers",
-    ):
-        maybe_add_collect(command, package_name)
-    for hidden in (
-        "tools.office_tools",
-        "tools.internal_policy_tools",
-        "tools.web_search_tools",
-        "workers.actions.worker",
-    ):
-        maybe_add_hidden_import(command, hidden)
-    command.append(str(cli / "agent_cli" / "__main__.py"))
-    return command
+    return command_helpers.pyinstaller_command(
+        bundle_name=bundle_name,
+        mode=mode,
+        dist_dir=dist_dir,
+        build_dir=build_dir,
+        spec_dir=spec_dir,
+        repo_root_func=repo_root,
+        cli_root_func=cli_root,
+        platform_system_func=platform.system,
+        agenthub_windows_icon_path_func=agenthub_windows_icon_path,
+        runtime_data_mappings_func=runtime_data_mappings,
+        add_data_arg_func=add_data_arg,
+        add_collect_func=add_collect,
+        maybe_add_collect_func=maybe_add_collect,
+        add_hidden_import_func=add_hidden_import,
+        maybe_add_hidden_import_func=maybe_add_hidden_import,
+        pyinstaller_optional_heavy_excludes=PYINSTALLER_OPTIONAL_HEAVY_EXCLUDES,
+        canonical_cli_dynamic_hidden_imports=CANONICAL_CLI_DYNAMIC_HIDDEN_IMPORTS,
+    )
 
 
 def ensure_clean(path: Path) -> None:

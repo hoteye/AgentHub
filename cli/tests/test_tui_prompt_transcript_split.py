@@ -2,14 +2,25 @@ from __future__ import annotations
 
 import unittest
 
+from textual.widgets import Static
+
 from cli.agent_cli.app import AgentCliApp
 from cli.agent_cli.models import ActivityEvent
-from cli.agent_cli.ui.transcript_history import TranscriptEntry, assistant_message_entry, user_message_entry
 from cli.agent_cli.ui.transcript_browsing_runtime import TranscriptBrowsingState
-from cli.agent_cli.ui.transcript_virtual_list import TranscriptVirtualList
+from cli.agent_cli.ui.transcript_history import (
+    TranscriptEntry,
+    assistant_message_entry,
+    user_message_entry,
+)
 from cli.agent_cli.ui.transcript_screen_projection_runtime import build_prompt_projection
+from cli.agent_cli.ui.transcript_structured_runtime import (
+    artifact_tool_payload,
+    command_execution_payload,
+    command_exploration_payload,
+    mcp_tool_payload,
+)
+from cli.agent_cli.ui.transcript_virtual_list import TranscriptVirtualList
 from cli.agent_cli.ui.widgets import TranscriptArea
-from textual.widgets import Static
 
 
 class PromptTranscriptProjectionTests(unittest.TestCase):
@@ -91,7 +102,9 @@ class PromptTranscriptProjectionTests(unittest.TestCase):
         projected = build_prompt_projection(entries)
 
         self.assertEqual(len(projected), 2)
-        self.assertEqual([entry.render_mode for entry in projected], ["prompt_tool_group", "prompt_tool_group"])
+        self.assertEqual(
+            [entry.render_mode for entry in projected], ["prompt_tool_group", "prompt_tool_group"]
+        )
         self.assertEqual(projected[0].group_key, "read")
         self.assertEqual(projected[1].group_key, "search")
         self.assertEqual(projected[0].child_entry_ids, ("entry:1", "entry:2"))
@@ -99,7 +112,9 @@ class PromptTranscriptProjectionTests(unittest.TestCase):
         self.assertTrue(projected[0].lines[0].startswith("• Read "))
         self.assertTrue(projected[1].lines[0].startswith("• Searched "))
 
-    def test_prompt_projection_labels_native_web_search_groups_explicitly_and_uses_query_summary(self) -> None:
+    def test_prompt_projection_labels_native_web_search_groups_explicitly_and_uses_query_summary(
+        self,
+    ) -> None:
         entries = [
             TranscriptEntry(
                 kind="activity",
@@ -160,6 +175,263 @@ class PromptTranscriptProjectionTests(unittest.TestCase):
         self.assertEqual(projected[1].entry_id, "entry:11")
         self.assertEqual(projected[1].lines[0], "• Approval required")
 
+    def test_prompt_projection_prefers_structured_shell_data_over_broken_lines(self) -> None:
+        entries = [
+            TranscriptEntry(
+                kind="activity",
+                layer="tool",
+                lines=["• Running rm -rf /", "  └ bogus"],
+                status="success",
+                render_mode="tool_command",
+                entry_id="cmd_1",
+                structured=command_execution_payload(
+                    command_text="cat app.py",
+                    raw_command_text="cat app.py",
+                    command_lines=["cat app.py"],
+                    output_lines=["print('ok')"],
+                    status_text="completed",
+                    exit_code=0,
+                ),
+            ),
+            TranscriptEntry(
+                kind="activity",
+                layer="tool",
+                lines=["• Running ls", "  └ bogus"],
+                status="success",
+                render_mode="tool_command",
+                entry_id="cmd_2",
+                structured=command_execution_payload(
+                    command_text="sed -n '1,20p' app.py",
+                    raw_command_text="sed -n '1,20p' app.py",
+                    command_lines=["sed -n '1,20p' app.py"],
+                    output_lines=["from __future__ import annotations"],
+                    status_text="completed",
+                    exit_code=0,
+                ),
+            ),
+        ]
+
+        projected = build_prompt_projection(entries)
+
+        self.assertEqual(len(projected), 1)
+        self.assertEqual(projected[0].render_mode, "prompt_tool_group")
+        self.assertEqual(projected[0].group_key, "read")
+        self.assertTrue(projected[0].lines[0].startswith("• Read 2 files"))
+        self.assertIn("Ran cat app.py", projected[0].lines[1])
+        self.assertNotIn("rm -rf", "\n".join(projected[0].lines))
+
+    def test_prompt_projection_prefers_explicit_structured_summary_and_group_key(self) -> None:
+        entries = [
+            TranscriptEntry(
+                kind="activity",
+                layer="tool",
+                lines=["• Running totally wrong"],
+                status="success",
+                render_mode="plain",
+                entry_id="explicit_1",
+                structured={
+                    "type": "tool",
+                    "name": "command_execution",
+                    "state": "completed",
+                    "title": "Ran command",
+                    "summary": "Ran custom summary",
+                    "group_key": "inspect",
+                    "input": {"command": "ignored", "display_command": "ignored"},
+                    "output": "ignored",
+                },
+            ),
+            TranscriptEntry(
+                kind="activity",
+                layer="tool",
+                lines=["• Running totally wrong"],
+                status="success",
+                render_mode="plain",
+                entry_id="explicit_2",
+                structured={
+                    "type": "tool",
+                    "name": "command_execution",
+                    "state": "completed",
+                    "title": "Ran command",
+                    "summary": "Ran custom summary",
+                    "group_key": "inspect",
+                    "input": {"command": "ignored", "display_command": "ignored"},
+                    "output": "ignored",
+                },
+            ),
+        ]
+
+        projected = build_prompt_projection(entries)
+
+        self.assertEqual(len(projected), 1)
+        self.assertEqual(projected[0].group_key, "inspect")
+        self.assertEqual(projected[0].lines[0], "• Ran 2 inspection commands")
+        self.assertEqual(projected[0].lines[1], "  └ Ran custom summary")
+        self.assertNotIn("totally wrong", "\n".join(projected[0].lines))
+
+    def test_prompt_projection_prefers_structured_web_data_over_broken_lines(self) -> None:
+        entries = [
+            TranscriptEntry(
+                kind="activity",
+                layer="web",
+                lines=["• Local web search", "  └ wrong"],
+                status="success",
+                render_mode="web_search",
+                entry_id="web_1",
+                structured={
+                    "type": "tool",
+                    "name": "web_search_call",
+                    "state": "completed",
+                    "title": "Native web search",
+                    "input": {"query": "openai codex", "provider_native": True},
+                    "output": "1. OpenAI Codex docs",
+                    "metadata": {"code": "web.search", "backend": "native"},
+                },
+            ),
+            TranscriptEntry(
+                kind="activity",
+                layer="web",
+                lines=["• Local web search", "  └ wrong"],
+                status="success",
+                render_mode="web_search",
+                entry_id="web_2",
+                structured={
+                    "type": "tool",
+                    "name": "web_search_call",
+                    "state": "completed",
+                    "title": "Native web search",
+                    "input": {"query": "agenthub transcript", "provider_native": True},
+                    "output": "1. AgentHub transcript docs",
+                    "metadata": {"code": "web.search", "backend": "native"},
+                },
+            ),
+        ]
+
+        projected = build_prompt_projection(entries)
+
+        self.assertEqual(len(projected), 1)
+        self.assertEqual(projected[0].group_key, "native_web_search")
+        self.assertTrue(projected[0].lines[0].startswith("• Native web search (2 updates)"))
+        self.assertIn("openai codex", projected[0].lines[1].lower())
+        self.assertNotIn("Local web search", "\n".join(projected[0].lines))
+
+    def test_prompt_projection_prefers_structured_exploration_data_over_broken_lines(self) -> None:
+        entries = [
+            TranscriptEntry(
+                kind="activity",
+                layer="tool",
+                lines=["• Running broken summary"],
+                status="success",
+                render_mode="tool_command",
+                entry_id="explore_1",
+                structured=command_exploration_payload(
+                    details=[("read", "cli/agent_cli/ui/transcript_history.py")],
+                    state="completed",
+                ),
+            ),
+            TranscriptEntry(
+                kind="activity",
+                layer="tool",
+                lines=["• Running broken summary"],
+                status="success",
+                render_mode="tool_command",
+                entry_id="explore_2",
+                structured=command_exploration_payload(
+                    details=[("read", "cli/agent_cli/ui/transcript_screen_projection_runtime.py")],
+                    state="completed",
+                ),
+            ),
+        ]
+
+        projected = build_prompt_projection(entries)
+
+        self.assertEqual(len(projected), 1)
+        self.assertEqual(projected[0].group_key, "read")
+        self.assertTrue(projected[0].lines[0].startswith("• Read 2 files"))
+        self.assertIn("cli/agent_cli/ui/transcript_history.py", projected[0].lines[1])
+        self.assertNotIn("broken summary", "\n".join(projected[0].lines))
+
+    def test_prompt_projection_prefers_structured_mcp_data_over_broken_lines(self) -> None:
+        entries = [
+            TranscriptEntry(
+                kind="activity",
+                layer="tool",
+                lines=["• Called broken_tool"],
+                status="success",
+                render_mode="tool_mcp",
+                entry_id="tool_1",
+                structured=mcp_tool_payload(
+                    item={"server": "local", "tool": "read_file", "status": "completed"},
+                    invocation="read_file cli/agent_cli/main.py",
+                    detail="ok",
+                    event_completed=True,
+                    ok=True,
+                ),
+            ),
+            TranscriptEntry(
+                kind="activity",
+                layer="tool",
+                lines=["• Called broken_tool"],
+                status="success",
+                render_mode="tool_mcp",
+                entry_id="tool_2",
+                structured=mcp_tool_payload(
+                    item={"server": "local", "tool": "read_file", "status": "completed"},
+                    invocation="read_file cli/agent_cli/app.py",
+                    detail="ok",
+                    event_completed=True,
+                    ok=True,
+                ),
+            ),
+        ]
+
+        projected = build_prompt_projection(entries)
+
+        self.assertEqual(len(projected), 1)
+        self.assertEqual(projected[0].group_key, "tool_call")
+        self.assertEqual(projected[0].lines[0], "• Tool activity (2 calls)")
+        self.assertIn("read_file cli/agent_cli/main.py", projected[0].lines[1])
+        self.assertNotIn("broken_tool", "\n".join(projected[0].lines))
+
+    def test_prompt_projection_prefers_structured_artifact_data_over_broken_lines(self) -> None:
+        entries = [
+            TranscriptEntry(
+                kind="activity",
+                layer="tool",
+                lines=["• Read text file"],
+                status="success",
+                render_mode="tool_view_image_ready",
+                entry_id="image_1",
+                structured=artifact_tool_payload(
+                    name="view_image",
+                    title="Image ready",
+                    state="image_ready",
+                    subject="diagram.png",
+                ),
+            ),
+            TranscriptEntry(
+                kind="activity",
+                layer="tool",
+                lines=["• Read text file"],
+                status="success",
+                render_mode="tool_view_image_ready",
+                entry_id="image_2",
+                structured=artifact_tool_payload(
+                    name="view_image",
+                    title="Image ready",
+                    state="image_ready",
+                    subject="flow.png",
+                ),
+            ),
+        ]
+
+        projected = build_prompt_projection(entries)
+
+        self.assertEqual(len(projected), 1)
+        self.assertEqual(projected[0].group_key, "image")
+        self.assertEqual(projected[0].lines[0], "• Viewed 2 images")
+        self.assertIn("Image ready diagram.png", projected[0].lines[1])
+        self.assertNotIn("Read text file", "\n".join(projected[0].lines))
+
 
 class PromptTranscriptScreenTests(unittest.IsolatedAsyncioTestCase):
     @staticmethod
@@ -199,7 +471,9 @@ class PromptTranscriptScreenTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app._screen_mode, "prompt")
             self.assertEqual(app.query_one("#composer_shell").styles.display, "block")
             self.assertIn("Tool activity", app.query_one("#main_log").text)
-            self.assertEqual(app.query_one("#transcript_log", TranscriptVirtualList).styles.display, "none")
+            self.assertEqual(
+                app.query_one("#transcript_log", TranscriptVirtualList).styles.display, "none"
+            )
 
             await pilot.press("ctrl+o")
             await pilot.pause()
@@ -207,16 +481,24 @@ class PromptTranscriptScreenTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app._screen_mode, "transcript")
             self.assertEqual(app.query_one("#composer_shell").styles.display, "none")
             self.assertEqual(app.query_one("#main_log").styles.display, "none")
-            self.assertEqual(app.query_one("#transcript_log", TranscriptVirtualList).styles.display, "block")
-            self.assertIn("ctrl+o", self._static_plain(app.query_one("#composer_footer", Static)).lower())
-            self.assertIn("• Running rg hello", app.query_one("#transcript_log", TranscriptVirtualList).text)
+            self.assertEqual(
+                app.query_one("#transcript_log", TranscriptVirtualList).styles.display, "block"
+            )
+            self.assertIn(
+                "ctrl+o", self._static_plain(app.query_one("#composer_footer", Static)).lower()
+            )
+            self.assertIn(
+                "• Running rg hello", app.query_one("#transcript_log", TranscriptVirtualList).text
+            )
 
             await pilot.press("escape")
             await pilot.pause()
 
             self.assertEqual(app._screen_mode, "prompt")
             self.assertEqual(app.query_one("#composer_shell").styles.display, "block")
-            self.assertEqual(app.query_one("#transcript_log", TranscriptVirtualList).styles.display, "none")
+            self.assertEqual(
+                app.query_one("#transcript_log", TranscriptVirtualList).styles.display, "none"
+            )
 
     async def test_transcript_virtual_list_scrolls_independently(self) -> None:
         app = AgentCliApp()
@@ -279,10 +561,16 @@ class PromptTranscriptScreenTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("ctrl+o")
             await pilot.pause()
 
-            self.assertIn("after freeze", app.query_one("#transcript_log", TranscriptVirtualList).text)
-            self.assertIn("should stay hidden", app.query_one("#transcript_log", TranscriptVirtualList).text)
+            self.assertIn(
+                "after freeze", app.query_one("#transcript_log", TranscriptVirtualList).text
+            )
+            self.assertIn(
+                "should stay hidden", app.query_one("#transcript_log", TranscriptVirtualList).text
+            )
 
-    async def test_transcript_browsing_state_searches_snapshot_and_highlights_active_entry(self) -> None:
+    async def test_transcript_browsing_state_searches_snapshot_and_highlights_active_entry(
+        self,
+    ) -> None:
         app = AgentCliApp()
 
         async with app.run_test() as pilot:

@@ -8,6 +8,12 @@ The format is based on Keep a Changelog, with one release section per published 
 
 No unreleased changes yet.
 
+## [0.1.16] - 2026-05-16
+
+### Changed
+
+- Improved the release driver so it reports version drift when an existing release tag is encountered, making it clearer when a new patch version should be cut.
+
 ## [0.1.15] - 2026-05-15
 
 ### Fixed

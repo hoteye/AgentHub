@@ -10,6 +10,7 @@ _URL_RE = re.compile(r"https?://[^\s<>'\"`]+")
 _SPACE_TOKEN_RE = re.compile(r"\S+")
 _LEADING_STRIP = "`'\"([<{"
 _TRAILING_STRIP = "`'\".,;!?)]>}"
+_MAX_PATH_TOKEN_LENGTH = 512
 
 
 @dataclass(frozen=True)
@@ -110,8 +111,12 @@ def _file_target_from_token(
 ) -> PreviewTarget | None:
     if not token or token.startswith(("http://", "https://")):
         return None
+    if len(token) > _MAX_PATH_TOKEN_LENGTH:
+        return None
     path_text, line_number = _split_path_line(token)
     if not path_text:
+        return None
+    if len(path_text) > _MAX_PATH_TOKEN_LENGTH:
         return None
     resolved = _resolve_existing_path(path_text, workspace_roots=workspace_roots)
     if resolved is None:
@@ -140,14 +145,23 @@ def _resolve_existing_path(
     *,
     workspace_roots: Sequence[str | Path] | None,
 ) -> Path | None:
-    candidate = Path(path_text).expanduser()
+    try:
+        candidate = Path(path_text).expanduser()
+    except (OSError, RuntimeError, ValueError):
+        return None
     if candidate.is_absolute():
-        return candidate if candidate.exists() else None
+        try:
+            return candidate if candidate.exists() else None
+        except OSError:
+            return None
     for root in workspace_roots or _workspace_roots():
-        root_path = Path(root).expanduser()
-        resolved = (root_path / candidate).resolve()
-        if resolved.exists():
-            return resolved
+        try:
+            root_path = Path(root).expanduser()
+            resolved = (root_path / candidate).resolve()
+            if resolved.exists():
+                return resolved
+        except OSError:
+            continue
     return None
 
 

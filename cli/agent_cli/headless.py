@@ -8,20 +8,13 @@ from typing import TYPE_CHECKING, Any, TextIO
 
 from cli.agent_cli import headless_entry_runtime as headless_entry_runtime_service
 from cli.agent_cli import headless_helpers as headless_helpers_service
+from cli.agent_cli import headless_output_runtime as headless_output_runtime_service
 from cli.agent_cli import headless_runtime as headless_runtime_service
-from cli.agent_cli import (
-    headless_shell_projection_runtime as headless_shell_projection_runtime_service,
-)
-from cli.agent_cli import headless_stream_runtime as headless_stream_runtime_service
 from cli.agent_cli import headless_wiring_runtime as headless_wiring_runtime_service
 from cli.agent_cli import (
     runtime_codex_headless_contract_runtime as codex_headless_contract_runtime_service,
 )
-from cli.agent_cli.models import (
-    PromptResponse,
-    response_items_to_text,
-    tool_event_is_soft_failure,
-)
+from cli.agent_cli.models import PromptResponse
 from cli.agent_cli.resume_support import (
     apply_runtime_resume_request,
     has_explicit_resume_request,
@@ -56,9 +49,8 @@ def has_headless_request(args: argparse.Namespace) -> bool:
 
 
 def prompt_response_to_dict(response: PromptResponse) -> dict[str, Any]:
-    return headless_wiring_runtime_service.prompt_response_to_dict(
+    return headless_output_runtime_service.prompt_response_to_dict_with_hooks(
         response,
-        service=headless_stream_runtime_service,
         canonical_turn_events_fn=_canonical_turn_events,
         tool_event_to_dict_fn=_tool_event_to_dict,
         activity_event_to_dict_fn=_activity_event_to_dict,
@@ -288,14 +280,13 @@ def _execute_prompt(
     request_id: str | None = None,
     codex_jsonl: bool = False,
 ) -> PromptResponse:
-    return headless_wiring_runtime_service.execute_prompt(
+    return headless_output_runtime_service.execute_prompt(
         runner,
         prompt,
         output_stream=output_stream,
         jsonl=jsonl,
         request_id=request_id,
         codex_jsonl=codex_jsonl,
-        service=headless_stream_runtime_service,
         headless_thread_id_fn=_headless_thread_id,
         emit_reference_jsonl_event_fn=_emit_reference_jsonl_event,
         turn_event_signature_fn=_turn_event_signature,
@@ -311,11 +302,10 @@ def _run_serve_loop(
     input_stream: TextIO,
     output_stream: TextIO,
 ) -> int:
-    return headless_wiring_runtime_service.run_serve_loop(
+    return headless_output_runtime_service.run_serve_loop(
         runner,
         input_stream=input_stream,
         output_stream=output_stream,
-        service=headless_stream_runtime_service,
         emit_json_line_fn=_emit_json_line,
         request_id_for_payload_fn=_request_id_for_payload,
         resolve_serve_prompt_fn=_resolve_serve_prompt,
@@ -334,22 +324,11 @@ def _resolve_prompt(args: argparse.Namespace, input_stream: TextIO) -> str | Non
 
 
 def _render_text_output(response: PromptResponse) -> str:
-    from cli.agent_cli.runtime_core.command_dispatch import tool_result_fallback_text
-
-    return headless_wiring_runtime_service.render_text_output(
-        response,
-        service=headless_runtime_service,
-        response_items_to_text_fn=response_items_to_text,
-        tool_result_fallback_text_fn=tool_result_fallback_text,
-    )
+    return headless_output_runtime_service.render_text_output(response)
 
 
 def _exit_code_for_response(response: PromptResponse) -> int:
-    return headless_wiring_runtime_service.exit_code_for_response(
-        response,
-        service=headless_runtime_service,
-        tool_event_is_soft_failure_fn=tool_event_is_soft_failure,
-    )
+    return headless_output_runtime_service.exit_code_for_response(response)
 
 
 def _emit_reference_jsonl_event(
@@ -359,7 +338,7 @@ def _emit_reference_jsonl_event(
     request_id: str | None = None,
     codex_jsonl: bool = False,
 ) -> None:
-    headless_stream_runtime_service.emit_reference_jsonl_event(
+    headless_output_runtime_service.emit_reference_jsonl_event(
         output_stream,
         payload,
         request_id=request_id,
@@ -369,9 +348,8 @@ def _emit_reference_jsonl_event(
 
 
 def _turn_event_backfill_signature(event: dict[str, Any]) -> str:
-    return headless_wiring_runtime_service.turn_event_backfill_signature(
+    return headless_output_runtime_service.turn_event_backfill_signature(
         event,
-        service=headless_stream_runtime_service,
         normalized_turn_event_value_fn=_normalized_turn_event_value,
     )
 
@@ -380,38 +358,34 @@ def _temporary_activity_callback(
     runner: HeadlessRuntime,
     callback,
 ):
-    return headless_stream_runtime_service.temporary_activity_callback(runner, callback)
+    return headless_output_runtime_service.temporary_activity_callback(runner, callback)
 
 
 def _temporary_turn_event_callback(
     runner: HeadlessRuntime,
     callback,
 ):
-    return headless_stream_runtime_service.temporary_turn_event_callback(runner, callback)
+    return headless_output_runtime_service.temporary_turn_event_callback(runner, callback)
 
 
-_headless_thread_id = headless_stream_runtime_service.headless_thread_id
-_request_id_for_payload = headless_stream_runtime_service.request_id_for_payload
-_resolve_serve_prompt = headless_stream_runtime_service.resolve_serve_prompt
-_tool_event_to_dict = headless_stream_runtime_service.tool_event_to_dict
-_activity_event_to_dict = headless_stream_runtime_service.activity_event_to_dict
-_has_piped_input = headless_runtime_service.has_piped_input
-_emit_json_line = headless_stream_runtime_service.emit_json_line
-_turn_event_signature = headless_stream_runtime_service.turn_event_signature
-_normalized_turn_event_value = headless_stream_runtime_service.normalized_turn_event_value
-_canonical_turn_events = headless_shell_projection_runtime_service.canonical_turn_events
+_headless_thread_id = headless_output_runtime_service.headless_thread_id
+_request_id_for_payload = headless_output_runtime_service.request_id_for_payload
+_resolve_serve_prompt = headless_output_runtime_service.resolve_serve_prompt
+_tool_event_to_dict = headless_output_runtime_service.tool_event_to_dict
+_activity_event_to_dict = headless_output_runtime_service.activity_event_to_dict
+_has_piped_input = headless_output_runtime_service.has_piped_input
+_emit_json_line = headless_output_runtime_service.emit_json_line
+_turn_event_signature = headless_output_runtime_service.turn_event_signature
+_normalized_turn_event_value = headless_output_runtime_service.normalized_turn_event_value
+_canonical_turn_events = headless_output_runtime_service.canonical_turn_events
 _shell_turn_events_from_tool_events = (
-    headless_shell_projection_runtime_service.shell_turn_events_from_tool_events
+    headless_output_runtime_service.shell_turn_events_from_tool_events
 )
-_shell_item_events_from_payload = (
-    headless_shell_projection_runtime_service.shell_item_events_from_payload
-)
-_shell_activity_to_turn_event = (
-    headless_shell_projection_runtime_service.shell_activity_to_turn_event
-)
-_shell_phase = headless_shell_projection_runtime_service.shell_phase
-_shell_status = headless_shell_projection_runtime_service.shell_status
-_shell_interaction_input = headless_shell_projection_runtime_service.shell_interaction_input
-_shell_output_text = headless_shell_projection_runtime_service.shell_output_text
-_shell_turn_item = headless_shell_projection_runtime_service.shell_turn_item
-_shell_call_id = headless_shell_projection_runtime_service.shell_call_id
+_shell_item_events_from_payload = headless_output_runtime_service.shell_item_events_from_payload
+_shell_activity_to_turn_event = headless_output_runtime_service.shell_activity_to_turn_event
+_shell_phase = headless_output_runtime_service.shell_phase
+_shell_status = headless_output_runtime_service.shell_status
+_shell_interaction_input = headless_output_runtime_service.shell_interaction_input
+_shell_output_text = headless_output_runtime_service.shell_output_text
+_shell_turn_item = headless_output_runtime_service.shell_turn_item
+_shell_call_id = headless_output_runtime_service.shell_call_id

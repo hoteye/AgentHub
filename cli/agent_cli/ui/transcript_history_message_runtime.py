@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from cli.agent_cli.models import PromptAttachment
+from cli.agent_cli.ui.transcript_structured_runtime import message_payload, reasoning_payload
 
 
 def _compact_single_operator_projection(content: str) -> str:
@@ -41,7 +42,9 @@ def user_message_entry(
     transcript_continuation_prefix: str,
 ):
     image_count = sum(1 for item in list(attachments or []) if is_image_attachment_fn(item))
-    message_text = strip_image_attachment_references_fn(content) if image_count else str(content or "")
+    message_text = (
+        strip_image_attachment_references_fn(content) if image_count else str(content or "")
+    )
     lines: list[str] = [f"  [Image #{index}]" for index in range(1, image_count + 1)]
     if lines and message_text.strip():
         lines.append("")
@@ -61,6 +64,11 @@ def user_message_entry(
             message_text,
             first_prefix=transcript_user_prefix,
             continuation_prefix=transcript_continuation_prefix,
+        ),
+        structured=message_payload(
+            name="user",
+            text=message_text,
+            metadata={"image_count": image_count},
         ),
     )
 
@@ -85,6 +93,11 @@ def assistant_message_entry(
         ),
         status=str(status or "info"),
         raw_content=compact_content,
+        structured=message_payload(
+            name="assistant",
+            text=compact_content,
+            state="error" if str(status or "").strip().lower() == "error" else "completed",
+        ),
         render_mode="markdown",
     )
 
@@ -106,6 +119,7 @@ def commentary_message_entry(
             continuation_prefix=transcript_continuation_prefix,
         ),
         raw_content=str(content or ""),
+        structured=message_payload(name="commentary", text=str(content or "")),
         render_mode="markdown",
     )
 
@@ -128,6 +142,7 @@ def reasoning_message_entry(
             continuation_prefix=transcript_continuation_prefix,
         ),
         raw_content=text,
+        structured=reasoning_payload(text),
         render_mode="reasoning_markdown",
     )
 
@@ -137,7 +152,9 @@ def is_image_attachment(item: PromptAttachment, *, image_attachment_extensions: 
     return extension in image_attachment_extensions
 
 
-def strip_image_attachment_references(content: str, *, inline_attachment_re: re.Pattern[str]) -> str:
+def strip_image_attachment_references(
+    content: str, *, inline_attachment_re: re.Pattern[str]
+) -> str:
     stripped = inline_attachment_re.sub("", str(content or ""))
     normalized_lines = [re.sub(r"[ \t]{2,}", " ", line).strip() for line in stripped.splitlines()]
     return "\n".join(normalized_lines).strip()

@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -17,9 +16,9 @@ _SCRIPT_PATHS = ensure_script_import_paths(__file__)
 CLI_ROOT = _SCRIPT_PATHS.cli_root
 REPO_ROOT = _SCRIPT_PATHS.repo_root
 
+# ruff: noqa: E402,I001
 from cli.agent_cli.provider import build_planner, load_provider_config
 from cli.scripts.run_policy_helper_live_cases_catalog import (
-    CASES,
     POLICY_HELPER_COMBO_CATALOG,
     POLICY_HELPER_PROFILE_MATRIX,
     PROFILE_CHOICES,
@@ -32,6 +31,10 @@ from cli.scripts.run_policy_helper_live_cases_runtime import (
     _report_summary,
     _route_view,
     _run_case,
+)
+from cli.scripts.run_policy_helper_live_cases_selection import (
+    _selected_cases,
+    _selected_helper_combos,
 )
 
 
@@ -118,109 +121,6 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _selected_cases(names: list[str] | None) -> list[PolicyHelperCase]:
-    if not names:
-        return list(CASES)
-    requested = {str(name or "").strip() for name in list(names or []) if str(name or "").strip()}
-    return [case for case in CASES if case.name in requested]
-
-
-def _combo_catalog_index() -> dict[str, PolicyHelperCombo]:
-    return {combo.combo_id: combo for combo in POLICY_HELPER_COMBO_CATALOG}
-
-
-def _combo_token(text: str) -> str:
-    normalized = "".join(ch if ch.isalnum() else "_" for ch in str(text or "").strip().lower())
-    normalized = normalized.strip("_")
-    return normalized or "default"
-
-
-def _manual_helper_combo(
-    *,
-    provider: str,
-    model: str,
-    reasoning_effort: str,
-    timeout: int,
-) -> PolicyHelperCombo:
-    provider_name = str(provider or "").strip()
-    model_name = str(model or "").strip()
-    effort = str(reasoning_effort or "").strip() or "low"
-    timeout_value = max(0, int(timeout or 0))
-    if provider_name or model_name:
-        combo_id = (
-            f"manual_{_combo_token(provider_name or 'provider')}_"
-            f"{_combo_token(model_name or 'model')}_"
-            f"{_combo_token(effort)}_t{timeout_value}"
-        )
-        source = "manual_override"
-        description = "Single-run helper override from command line flags."
-    else:
-        combo_id = f"single_main_route_{_combo_token(effort)}_t{timeout_value}"
-        source = "main_route"
-        description = "Single-run helper route follows main model route."
-    return PolicyHelperCombo(
-        combo_id=combo_id,
-        provider=provider_name,
-        model=model_name,
-        reasoning_effort=effort,
-        timeout=timeout_value,
-        source=source,
-        description=description,
-    )
-
-
-def _selected_helper_combos(
-    *,
-    profile: str,
-    helper_combos: list[str] | None,
-    policy_helper_provider: str,
-    policy_helper_model: str,
-    policy_helper_reasoning_effort: str,
-    policy_helper_timeout: int,
-) -> list[PolicyHelperCombo]:
-    normalized_profile = str(profile or "single").strip() or "single"
-    requested_combo_ids = [
-        str(item or "").strip()
-        for item in list(helper_combos or [])
-        if str(item or "").strip()
-    ]
-    if normalized_profile == "single":
-        if requested_combo_ids:
-            raise ValueError("--helper-combo requires --profile policy_helper_regression or policy_helper_matrix")
-        return [
-            _manual_helper_combo(
-                provider=policy_helper_provider,
-                model=policy_helper_model,
-                reasoning_effort=policy_helper_reasoning_effort,
-                timeout=policy_helper_timeout,
-            )
-        ]
-
-    if str(policy_helper_provider or "").strip() or str(policy_helper_model or "").strip():
-        raise ValueError(
-            "--policy-helper-provider/--policy-helper-model cannot be combined with profile matrix runs; "
-            "use --helper-combo to pick profile combos"
-        )
-
-    combo_index = _combo_catalog_index()
-    profile_combo_ids = list(POLICY_HELPER_PROFILE_MATRIX.get(normalized_profile) or ())
-    if not profile_combo_ids:
-        raise ValueError(f"unsupported --profile {normalized_profile!r}")
-    if requested_combo_ids:
-        unknown_ids = [combo_id for combo_id in requested_combo_ids if combo_id not in combo_index]
-        if unknown_ids:
-            joined = ", ".join(sorted(set(unknown_ids)))
-            raise ValueError(f"unknown --helper-combo ids: {joined}")
-        filtered_ids = [combo_id for combo_id in profile_combo_ids if combo_id in set(requested_combo_ids)]
-        if not filtered_ids:
-            raise ValueError(
-                f"requested --helper-combo not in profile {normalized_profile}: "
-                f"{', '.join(requested_combo_ids)}"
-            )
-        profile_combo_ids = filtered_ids
-    return [combo_index[combo_id] for combo_id in profile_combo_ids]
-
-
 def _run_combo(
     *,
     base_config: Any,
@@ -241,7 +141,10 @@ def _run_combo(
     )
     planner = build_planner(config, cwd=str(config_cwd))
     planner_kind = str(getattr(getattr(planner, "config", None), "planner_kind", "") or "")
-    if not all(hasattr(planner, name) for name in ("_policy_llm_query_rewrite", "_policy_llm_rerank", "_policy_llm_extract")):
+    if not all(
+        hasattr(planner, name)
+        for name in ("_policy_llm_query_rewrite", "_policy_llm_rerank", "_policy_llm_extract")
+    ):
         raise SystemExit(
             f"policy_helper live cases require a chat-completions planner with policy helper hooks; got planner_kind={planner_kind or '-'}"
         )
@@ -352,8 +255,13 @@ def main(argv: list[str] | None = None) -> int:
         }
         report["failure_categories"] = dict(profile_summary.get("failure_categories") or {})
 
-    if len(selected_combos) > 1 and (str(args.policy_helper_provider or "").strip() or str(args.policy_helper_model or "").strip()):
-        parser.error("--policy-helper-provider/--policy-helper-model are only valid when --profile=single")
+    if len(selected_combos) > 1 and (
+        str(args.policy_helper_provider or "").strip()
+        or str(args.policy_helper_model or "").strip()
+    ):
+        parser.error(
+            "--policy-helper-provider/--policy-helper-model are only valid when --profile=single"
+        )
 
     if str(args.profile or "single").strip() == "single":
         report["policy_helper_override"] = {
@@ -373,8 +281,7 @@ def main(argv: list[str] | None = None) -> int:
     report["helper_combo_catalog"] = [combo.as_dict() for combo in POLICY_HELPER_COMBO_CATALOG]
     if str(args.profile or "single").strip() != "single":
         report["profile_combo_matrix"] = {
-            key: list(value)
-            for key, value in POLICY_HELPER_PROFILE_MATRIX.items()
+            key: list(value) for key, value in POLICY_HELPER_PROFILE_MATRIX.items()
         }
 
     if not run_reports:
@@ -400,9 +307,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if str(args.profile or "single").strip() == "single" and run_reports:
         report["matrix_summary"] = {
-            str(run_reports[0].get("helper_combo", {}).get("combo_id") or ""): dict(run_reports[0].get("summary") or {})
+            str(run_reports[0].get("helper_combo", {}).get("combo_id") or ""): dict(
+                run_reports[0].get("summary") or {}
+            )
         }
-        report["failure_categories"] = dict((report.get("summary") or {}).get("failure_categories") or {})
+        report["failure_categories"] = dict(
+            (report.get("summary") or {}).get("failure_categories") or {}
+        )
 
     if str(args.profile or "single").strip() == "single" and not report.get("helper_combo"):
         report["helper_combo"] = selected_combos[0].as_dict() if selected_combos else {}
@@ -411,8 +322,12 @@ def main(argv: list[str] | None = None) -> int:
         report["helper_combo"] = {}
 
     if str(args.profile or "single").strip() == "single":
-        report["summary"] = dict(run_reports[0].get("summary") or {}) if run_reports else _report_summary([])
-        report["failure_categories"] = dict((report.get("summary") or {}).get("failure_categories") or {})
+        report["summary"] = (
+            dict(run_reports[0].get("summary") or {}) if run_reports else _report_summary([])
+        )
+        report["failure_categories"] = dict(
+            (report.get("summary") or {}).get("failure_categories") or {}
+        )
 
     output = json.dumps(report, ensure_ascii=False, indent=2)
     print(output)

@@ -473,6 +473,13 @@ class TabSessionManager:
             if tab_id == self._active_tab_id:
                 self._restore_tab_state(tab_id)
 
+        if not bool(getattr(self._app, "_running", False)):
+            call_after_refresh = getattr(self._app, "call_after_refresh", None)
+            if callable(call_after_refresh) and call_after_refresh(_poll):
+                return
+            if session is not None:
+                session.runtime_restore_poll_scheduled = False
+            return
         try:
             set_timer(0.05, _poll)
         except RuntimeError:

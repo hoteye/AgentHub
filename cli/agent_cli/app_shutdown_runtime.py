@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from cli.agent_cli.startup_debug import startup_log
+
 
 def request_worker_tasks_for_shutdown(app: Any) -> list[Any]:
     tasks: list[Any] = []
@@ -41,6 +43,7 @@ async def close_codex_sidecar_kernel(app: Any) -> None:
 
 
 async def on_unmount(app: Any) -> None:
+    startup_log("app.on_unmount.begin")
     app._begin_shutdown()
     mgr = getattr(app, "_tab_manager", None)
     if mgr is not None:
@@ -49,6 +52,7 @@ async def on_unmount(app: Any) -> None:
     tasks = request_worker_tasks_for_shutdown(app)
     await cancel_and_wait_for_tasks(tasks)
     await close_codex_sidecar_kernel(app)
+    startup_log("app.on_unmount.end")
 
 
 __all__ = [

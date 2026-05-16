@@ -15,8 +15,7 @@ from cli.agent_cli.ui.composer_helpers import (
     ComposerWidgetMixin,
 )
 from cli.agent_cli.ui.presentation import MessageCatalog, PresentationSettings, default_messages
-from cli.agent_cli.ui.theme import CliTheme, default_theme
-from cli.agent_cli.ui.theme import TRANSCRIPT_USER_PREFIX
+from cli.agent_cli.ui.theme import TRANSCRIPT_USER_PREFIX, CliTheme, default_theme
 
 
 class PromptComposer(
@@ -70,7 +69,9 @@ class PromptComposer(
     ) -> None:
         super().__init__("", **kwargs)
         self._theme = theme or (presentation.theme if presentation is not None else default_theme())
-        self._messages = messages or (presentation.messages if presentation is not None else default_messages())
+        self._messages = messages or (
+            presentation.messages if presentation is not None else default_messages()
+        )
         self._text = text
         self._cursor_pos = len(text)
         self._selection_anchor: int | None = None
@@ -80,6 +81,7 @@ class PromptComposer(
         self._is_drag_selecting = False
         self._undo_stack: list[ComposerSnapshot] = []
         self._redo_stack: list[ComposerSnapshot] = []
+        self._kill_buffer = ""
         self._last_click_at = 0.0
         self._last_click_cell: tuple[int, int] | None = None
         self._click_streak = 0
@@ -104,5 +106,7 @@ class PromptComposer(
         messages: MessageCatalog | None = None,
     ) -> None:
         self._theme = theme or (presentation.theme if presentation is not None else self._theme)
-        self._messages = messages or (presentation.messages if presentation is not None else self._messages)
+        self._messages = messages or (
+            presentation.messages if presentation is not None else self._messages
+        )
         self.refresh(repaint=True, layout=False)

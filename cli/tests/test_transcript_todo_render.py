@@ -19,6 +19,10 @@ def test_plan_activity_uses_todo_list_render_mode() -> None:
     assert entry is not None
     assert entry.layer == "commentary"
     assert entry.render_mode == "todo_list"
+    assert entry.structured is not None
+    assert entry.structured["type"] == "tool"
+    assert entry.structured["name"] == "todo_list"
+    assert entry.structured["metadata"]["source"] == "plan_activity"
     assert entry.lines == [
         "• Todo List",
         "  └ inspect provider routing",
@@ -43,10 +47,17 @@ def test_todo_list_visual_render_keeps_checkbox_alignment_after_wrap() -> None:
     )
 
     assert entry is not None
+    assert entry.structured is not None
+    assert entry.structured["type"] == "tool"
+    assert entry.structured["name"] == "todo_list"
+    assert entry.structured["input"]["items"][0] == {
+        "text": "inspect provider native web search routing",
+        "completed": False,
+    }
     rendered = render_transcript_visual_entries([entry], width=26)
 
     assert rendered.lines == [
-        "• Todo List",
+        "□ Todo List",
         "  └ □ inspect provider",
         "      native web search",
         "      routing",
@@ -70,7 +81,7 @@ def test_empty_plan_visual_render_keeps_no_steps_semantics() -> None:
     rendered = render_transcript_visual_entries([entry], width=18)
 
     assert rendered.lines == [
-        "• Todo List",
+        "□ Todo List",
         "  └ (no steps",
         "    provided)",
     ]
