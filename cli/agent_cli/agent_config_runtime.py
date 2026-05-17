@@ -97,6 +97,8 @@ def reload_planner(
                 )
             agent._planner_managed = agent._planner is not None
         except Exception as exc:
+            if str(getattr(config, "auth_status", "") or "").strip().lower() == "missing":
+                agent._planner_config = config
             agent._planner_error = str(exc)
 
 

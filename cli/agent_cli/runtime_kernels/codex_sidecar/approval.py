@@ -1,48 +1,41 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from hashlib import sha1
 from typing import Any
 
 from cli.agent_cli import approval_contract_runtime
-from cli.agent_cli.gateway_core import ActionRequest, ApprovalTicket, create_audit_record
+from cli.agent_cli.gateway_core import ActionRequest
 from cli.agent_cli.models import ActivityEvent, ToolEvent
-from cli.agent_cli.runtime_kernels.codex_sidecar import approval_response_runtime
+from cli.agent_cli.runtime_kernels.codex_sidecar import (
+    approval_records_runtime,
+    approval_response_runtime,
+)
 from cli.agent_cli.runtime_kernels.codex_sidecar.protocol import JsonObject, JsonRpcServerRequest
 from cli.agent_cli.runtime_services import approval_resolution_helpers_runtime
 
-CODEX_SIDECAR_CONNECTOR_KEY = "codex_sidecar"
-CODEX_SIDECAR_PLUGIN_NAME = "codex_sidecar"
-CODEX_COMMAND_APPROVAL_ACTION_TYPE = "codex_sidecar.command_execution"
-CODEX_FILE_CHANGE_APPROVAL_ACTION_TYPE = "codex_sidecar.file_change"
-CODEX_PERMISSION_APPROVAL_ACTION_TYPE = "codex_sidecar.permissions"
-CODEX_COMMAND_APPROVAL_METHOD = "item/commandExecution/requestApproval"
-CODEX_FILE_CHANGE_APPROVAL_METHOD = "item/fileChange/requestApproval"
-CODEX_PERMISSION_APPROVAL_METHOD = "item/permissions/requestApproval"
+CODEX_SIDECAR_CONNECTOR_KEY = approval_records_runtime.CODEX_SIDECAR_CONNECTOR_KEY
+CODEX_SIDECAR_PLUGIN_NAME = approval_records_runtime.CODEX_SIDECAR_PLUGIN_NAME
+CODEX_COMMAND_APPROVAL_ACTION_TYPE = approval_records_runtime.CODEX_COMMAND_APPROVAL_ACTION_TYPE
+CODEX_FILE_CHANGE_APPROVAL_ACTION_TYPE = (
+    approval_records_runtime.CODEX_FILE_CHANGE_APPROVAL_ACTION_TYPE
+)
+CODEX_PERMISSION_APPROVAL_ACTION_TYPE = (
+    approval_records_runtime.CODEX_PERMISSION_APPROVAL_ACTION_TYPE
+)
+CODEX_COMMAND_APPROVAL_METHOD = approval_records_runtime.CODEX_COMMAND_APPROVAL_METHOD
+CODEX_FILE_CHANGE_APPROVAL_METHOD = approval_records_runtime.CODEX_FILE_CHANGE_APPROVAL_METHOD
+CODEX_PERMISSION_APPROVAL_METHOD = approval_records_runtime.CODEX_PERMISSION_APPROVAL_METHOD
 
 
 def is_command_approval_request(request: JsonRpcServerRequest) -> bool:
-    return str(request.method or "").strip() == CODEX_COMMAND_APPROVAL_METHOD
+    return approval_records_runtime.is_command_approval_request(request)
 
 
 def is_supported_approval_request(request: JsonRpcServerRequest) -> bool:
-    return str(request.method or "").strip() in {
-        CODEX_COMMAND_APPROVAL_METHOD,
-        CODEX_FILE_CHANGE_APPROVAL_METHOD,
-        CODEX_PERMISSION_APPROVAL_METHOD,
-    }
+    return approval_records_runtime.is_supported_approval_request(request)
 
 
 def approval_id_for_request(request: JsonRpcServerRequest) -> str:
-    params = dict(request.params or {})
-    raw_approval_id = str(params.get("approvalId") or params.get("approval_id") or "").strip()
-    if raw_approval_id:
-        return raw_approval_id
-    thread_id = str(params.get("threadId") or params.get("thread_id") or "").strip()
-    turn_id = str(params.get("turnId") or params.get("turn_id") or "").strip()
-    item_id = str(params.get("itemId") or params.get("item_id") or "").strip()
-    digest = sha1(f"{thread_id}|{turn_id}|{item_id}|{request.request_id}".encode()).hexdigest()[:12]
-    return f"codex_approval_{digest}"
+    return approval_records_runtime.approval_id_for_request(request)
 
 
 def activity_for_approval(
@@ -51,35 +44,10 @@ def activity_for_approval(
     approval_id: str,
     available_decisions: list[dict[str, Any]],
 ) -> ActivityEvent:
-    params = dict(request.params or {})
-    command = str(params.get("command") or "").strip()
-    reason = str(params.get("reason") or "").strip()
-    kind = _approval_kind_for_request(request)
-    detail_lines = [approval_id]
-    if command:
-        detail_lines.append(f"command={command}")
-    if kind == "file_change" and params.get("grantRoot"):
-        detail_lines.append(f"grantRoot={params.get('grantRoot')}")
-    if kind == "permissions" and params.get("permissions"):
-        detail_lines.append("permissions requested")
-    if reason:
-        detail_lines.append(f"reason={reason}")
-    return ActivityEvent(
-        title=_approval_activity_title(kind),
-        status="info",
-        detail="\n".join(detail_lines),
-        kind="approval",
-        code=_approval_activity_code(kind),
-        params={
-            "approval_id": approval_id,
-            "command": command or None,
-            "reason": reason or None,
-            "available_decisions": available_decisions,
-            "source": "codex_sidecar",
-            "method": request.method,
-            "request_id": request.request_id,
-            "approval_kind": kind,
-        },
+    return approval_records_runtime.activity_for_approval(
+        request,
+        approval_id=approval_id,
+        available_decisions=available_decisions,
     )
 
 
@@ -102,81 +70,27 @@ def register_command_approval(runtime: Any, request: JsonRpcServerRequest) -> To
 
 def register_approval(runtime: Any, request: JsonRpcServerRequest) -> ToolEvent:
     _ensure_gateway_store(runtime)
-    params = dict(request.params or {})
     approval_id = approval_id_for_request(request)
     existing_ticket = runtime.gateway_state_store.get_approval_ticket(approval_id)
     if existing_ticket is not None:
-        return _approval_tool_event(existing_ticket, params)
-    now = _utc_now_text()
-    thread_id = str(params.get("threadId") or "").strip()
-    turn_id = str(params.get("turnId") or "").strip()
-    item_id = str(params.get("itemId") or "").strip()
-    kind = _approval_kind_for_request(request)
-    action_request = ActionRequest(
-        action_id=f"codex_action_{_digest(approval_id, thread_id, turn_id, item_id)}",
-        action_type=_approval_action_type(kind),
-        connector_key=CODEX_SIDECAR_CONNECTOR_KEY,
-        plugin_name=CODEX_SIDECAR_PLUGIN_NAME,
-        trace_id=f"codex_sidecar_{_digest(thread_id, turn_id, item_id, approval_id)}",
-        requested_at=now,
-        requested_by="codex_sidecar",
-        approval_required=True,
-        action_family=kind,
-        action_class="runtime",
-        approval_policy=None,
-        audit_stage="approval",
-        payload=_action_payload_from_request(request, approval_id=approval_id),
-        metadata={
-            "source": "codex_sidecar",
-            "method": request.method,
-            "request_id": request.request_id,
-            "thread_id": thread_id,
-            "turn_id": turn_id,
-            "item_id": item_id,
-            "approval_kind": kind,
-        },
-    )
-    available_decisions = _available_decisions_from_request(request)
-    ticket = ApprovalTicket(
+        return approval_records_runtime.approval_tool_event(
+            existing_ticket,
+            dict(request.params or {}),
+        )
+    records = approval_records_runtime.approval_registration_records(
+        request,
         approval_id=approval_id,
-        action_id=action_request.action_id,
-        trace_id=action_request.trace_id,
-        status="pending",
-        requested_at=now,
-        requested_by="codex_sidecar",
-        reason=str(params.get("reason") or f"Codex sidecar requested {kind} approval").strip(),
-        summary=_approval_summary(kind),
-        available_decisions=available_decisions,
-        grant_root=str(params.get("grantRoot") or "").strip() or None,
-        metadata={
-            "source": "codex_sidecar",
-            "method": request.method,
-            "request_id": request.request_id,
-            "thread_id": thread_id,
-            "turn_id": turn_id,
-            "item_id": item_id,
-            "approval_kind": kind,
-        },
     )
-    runtime.save_gateway_action_request(action_request)
-    runtime.save_gateway_approval_ticket(ticket)
+    runtime.save_gateway_action_request(records.action_request)
+    runtime.save_gateway_approval_ticket(records.ticket)
     runtime.append_gateway_audit_record(
-        create_audit_record(
-            trace_id=action_request.trace_id,
-            stage="approval",
-            status="pending",
-            summary=ticket.summary,
-            action_id=action_request.action_id,
-            approval_id=ticket.approval_id,
-            details={
-                "reason": ticket.reason,
-                "command": action_request.payload.get("command"),
-                "approval_kind": kind,
-            },
-            metadata={"source": "codex_sidecar"},
+        approval_records_runtime.pending_approval_audit_record(
+            records.action_request,
+            records.ticket,
+            kind=records.kind,
         )
     )
-    return _approval_tool_event(ticket, params)
+    return approval_records_runtime.approval_tool_event(records.ticket, records.params)
 
 
 def decide_command_approval(
@@ -224,29 +138,16 @@ def decide_approval(
     )
     runtime.save_gateway_approval_ticket(updated_ticket)
     runtime.append_gateway_audit_record(
-        create_audit_record(
-            trace_id=updated_ticket.trace_id,
-            stage="approval",
-            status=updated_ticket.status,
-            summary=f"{updated_ticket.status} Codex sidecar approval",
-            action_id=updated_ticket.action_id,
-            approval_id=updated_ticket.approval_id,
-            details={
-                "decision_type": updated_ticket.decision_type,
-                "decision_note": updated_ticket.decision_note,
-            },
-            metadata={"source": "codex_sidecar"},
-        )
+        approval_records_runtime.decided_approval_audit_record(updated_ticket)
     )
     response = approval_resolution_helpers_runtime.approval_resolution_response(
         updated_ticket,
         action_request,
         None,
         [],
-        payload_updates={
-            "source": "codex_sidecar",
-            "command": dict(action_request.payload or {}).get("command"),
-        },
+        payload_updates=approval_records_runtime.approval_resolution_payload_updates(
+            action_request
+        ),
     )
     response["codex_sidecar_response"] = approval_response_for_decision(
         normalized_decision,
@@ -270,88 +171,6 @@ def approval_response_for_decision(
     )
 
 
-def _available_decisions_from_request(request: JsonRpcServerRequest) -> list[dict[str, Any]]:
-    params = dict(request.params or {})
-    raw = params.get("availableDecisions") or params.get("available_decisions")
-    if raw:
-        normalized = approval_contract_runtime.normalize_available_decisions(raw)
-        if normalized:
-            return normalized
-    proposed_rule = params.get("proposedExecpolicyAmendment") or params.get(
-        "proposed_execpolicy_amendment"
-    )
-    if str(request.method or "").strip() == CODEX_COMMAND_APPROVAL_METHOD:
-        return approval_contract_runtime.shell_available_decisions(
-            dict(proposed_rule) if isinstance(proposed_rule, dict) else None
-        )
-    if str(request.method or "").strip() == CODEX_FILE_CHANGE_APPROVAL_METHOD:
-        return approval_contract_runtime.patch_available_decisions(
-            grant_root=str(params.get("grantRoot") or "").strip() or None
-        )
-    return approval_contract_runtime.shell_available_decisions(
-        dict(proposed_rule) if isinstance(proposed_rule, dict) else None
-    )
-
-
-def _action_payload_from_request(
-    request: JsonRpcServerRequest,
-    *,
-    approval_id: str,
-) -> dict[str, Any]:
-    params = dict(request.params or {})
-    return {
-        "approval_id": approval_id,
-        "request_id": request.request_id,
-        "method": request.method,
-        "thread_id": str(params.get("threadId") or "").strip(),
-        "turn_id": str(params.get("turnId") or "").strip(),
-        "item_id": str(params.get("itemId") or "").strip(),
-        "command": str(params.get("command") or "").strip(),
-        "cwd": str(params.get("cwd") or "").strip() or None,
-        "reason": str(params.get("reason") or "").strip() or None,
-        "command_actions": (
-            list(params.get("commandActions") or [])
-            if isinstance(params.get("commandActions"), list)
-            else []
-        ),
-        "grant_root": str(params.get("grantRoot") or "").strip() or None,
-        "permissions": (
-            params.get("permissions") if isinstance(params.get("permissions"), dict) else None
-        ),
-        "changes": params.get("changes") if isinstance(params.get("changes"), list) else [],
-        "additional_permissions": params.get("additionalPermissions")
-        or params.get("additional_permissions"),
-        "proposed_execpolicy_amendment": params.get("proposedExecpolicyAmendment")
-        or params.get("proposed_execpolicy_amendment"),
-        "proposed_network_policy_amendments": params.get("proposedNetworkPolicyAmendments")
-        or params.get("proposed_network_policy_amendments"),
-    }
-
-
-def _approval_tool_event(ticket: ApprovalTicket, params: dict[str, Any]) -> ToolEvent:
-    kind = str((ticket.metadata or {}).get("approval_kind") or "command_execution")
-    event_name = "shell_approval_requested"
-    if kind != "command_execution":
-        event_name = f"{kind}_approval_requested"
-    return ToolEvent(
-        name=event_name,
-        ok=True,
-        summary=f"codex sidecar {kind} approval requested {ticket.approval_id}",
-        payload={
-            "ok": True,
-            "approval_id": ticket.approval_id,
-            "status": ticket.status,
-            "summary": ticket.summary,
-            "reason": ticket.reason,
-            "command": str(params.get("command") or "").strip(),
-            "cwd": str(params.get("cwd") or "").strip() or None,
-            "available_decisions": list(ticket.available_decisions or []),
-            "source": "codex_sidecar",
-            "approval_kind": kind,
-        },
-    )
-
-
 def _ensure_gateway_store(runtime: Any) -> None:
     if getattr(runtime, "gateway_state_store", None) is not None:
         return
@@ -360,55 +179,16 @@ def _ensure_gateway_store(runtime: Any) -> None:
     runtime.gateway_state_store = InMemoryGatewayStateStore()
 
 
-def _utc_now_text() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat()
-
-
-def _digest(*parts: object) -> str:
-    return sha1("|".join(str(part or "") for part in parts).encode()).hexdigest()[:12]
-
-
-def _approval_kind_for_request(request: JsonRpcServerRequest) -> str:
-    method = str(request.method or "").strip()
-    if method == CODEX_FILE_CHANGE_APPROVAL_METHOD:
-        return "file_change"
-    if method == CODEX_PERMISSION_APPROVAL_METHOD:
-        return "permissions"
-    return "command_execution"
-
-
-def _approval_action_type(kind: str) -> str:
-    if kind == "file_change":
-        return CODEX_FILE_CHANGE_APPROVAL_ACTION_TYPE
-    if kind == "permissions":
-        return CODEX_PERMISSION_APPROVAL_ACTION_TYPE
-    return CODEX_COMMAND_APPROVAL_ACTION_TYPE
-
-
-def _approval_summary(kind: str) -> str:
-    if kind == "file_change":
-        return "Approve Codex sidecar file changes"
-    if kind == "permissions":
-        return "Approve Codex sidecar permissions"
-    return "Approve Codex sidecar command"
-
-
-def _approval_activity_title(kind: str) -> str:
-    if kind == "file_change":
-        return "Requested file change approval"
-    if kind == "permissions":
-        return "Requested permissions approval"
-    return "Requested shell approval"
-
-
-def _approval_activity_code(kind: str) -> str:
-    if kind == "file_change":
-        return "approval.request.file_change"
-    if kind == "permissions":
-        return "approval.request.permissions"
-    return "approval.request.shell"
-
-
+_available_decisions_from_request = approval_records_runtime.available_decisions_from_request
+_action_payload_from_request = approval_records_runtime.action_payload_from_request
+_approval_tool_event = approval_records_runtime.approval_tool_event
+_utc_now_text = approval_records_runtime.utc_now_text
+_digest = approval_records_runtime.digest
+_approval_kind_for_request = approval_records_runtime.approval_kind_for_request
+_approval_action_type = approval_records_runtime.approval_action_type
+_approval_summary = approval_records_runtime.approval_summary
+_approval_activity_title = approval_records_runtime.approval_activity_title
+_approval_activity_code = approval_records_runtime.approval_activity_code
 _codex_execpolicy_amendment_from_rule = (
     approval_response_runtime.codex_execpolicy_amendment_from_rule
 )

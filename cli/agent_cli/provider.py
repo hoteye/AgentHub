@@ -198,6 +198,7 @@ def _facade_path_deps() -> _provider_facade_paths_runtime.ProviderFacadePathRunt
         home_provider_paths_fn=_home_provider_paths,
         resolve_provider_paths_fn=resolve_provider_paths,
         discover_provider_project_local_paths_fn=_discover_provider_project_local_paths,
+        default_config_paths_fn=_default_provider_config_paths,
         private_config_paths_fn=_private_provider_config_paths,
         private_auth_paths_fn=_private_provider_auth_paths,
     )
@@ -219,6 +220,7 @@ _provider_discovery_strict_isolation_enabled = (
     _facade_path_runtime.provider_discovery_strict_isolation_enabled
 )
 _home_provider_paths = _facade_path_runtime.home_provider_paths
+_default_provider_config_paths = _facade_path_runtime.default_config_paths
 _private_provider_auth_paths = _facade_path_runtime.private_provider_auth_paths
 _private_provider_config_paths = _facade_path_runtime.private_provider_config_paths
 _project_claude_home_dir = _facade_path_runtime.project_claude_home_dir

@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from rich.cells import cell_len
 
-from . import composer_editing_model_runtime
+from . import composer_edit_history_runtime, composer_editing_model_runtime
 
-
-@dataclass(slots=True)
-class ComposerSnapshot:
-    text: str
-    cursor_pos: int
-    selection_anchor: int | None
+ComposerSnapshot = composer_edit_history_runtime.ComposerSnapshot
+apply_snapshot = composer_edit_history_runtime.apply_snapshot
+push_undo_snapshot = composer_edit_history_runtime.push_undo_snapshot
+redo = composer_edit_history_runtime.redo
+snapshot = composer_edit_history_runtime.snapshot
+undo = composer_edit_history_runtime.undo
 
 
 def clear_text(composer) -> None:
@@ -271,20 +269,6 @@ def yank_kill_buffer(composer) -> None:
     composer.insert_text(composer._kill_buffer)
 
 
-def undo(composer) -> None:
-    if not composer._undo_stack:
-        return
-    composer._redo_stack.append(composer._snapshot())
-    composer._apply_snapshot(composer._undo_stack.pop())
-
-
-def redo(composer) -> None:
-    if not composer._redo_stack:
-        return
-    composer._undo_stack.append(composer._snapshot())
-    composer._apply_snapshot(composer._redo_stack.pop())
-
-
 def current_or_preferred_column(composer) -> int:
     if composer._preferred_column is not None:
         return composer._preferred_column
@@ -380,32 +364,6 @@ def expand_bounds_to_atomic_tokens(composer, start: int, end: int) -> tuple[int,
     return composer_editing_model_runtime.expand_bounds_to_atomic_tokens(
         composer._atomic_ranges(), start, end
     )
-
-
-def snapshot(composer) -> ComposerSnapshot:
-    return ComposerSnapshot(
-        text=composer._text,
-        cursor_pos=composer._cursor_pos,
-        selection_anchor=composer._selection_anchor,
-    )
-
-
-def push_undo_snapshot(composer) -> None:
-    current = composer._snapshot()
-    if composer._undo_stack and composer._undo_stack[-1] == current:
-        return
-    composer._undo_stack.append(current)
-    if len(composer._undo_stack) > 200:
-        composer._undo_stack = composer._undo_stack[-200:]
-    composer._redo_stack = []
-
-
-def apply_snapshot(composer, snapshot_value: ComposerSnapshot) -> None:
-    composer._text = snapshot_value.text
-    composer._cursor_pos = snapshot_value.cursor_pos
-    composer._selection_anchor = snapshot_value.selection_anchor
-    composer._preferred_column = None
-    composer._sync()
 
 
 def replace_selection_or_insert(composer, text: str) -> None:

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from cli.agent_cli import __version__
 from cli.agent_cli import main as main_module
 from cli.agent_cli import subcommands as subcommands_module
 from cli.agent_cli.app_runtime_flow import AppRuntimeFlowMixin
@@ -58,6 +59,44 @@ def test_dispatch_subcommand_reports_missing_module(monkeypatch: pytest.MonkeyPa
 
     assert exit_code == 1
     assert "subcommand 'plugin' is not available" in stderr.getvalue()
+
+
+def test_main_prints_version_without_runtime_startup(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _unexpected_startup(*args, **kwargs):  # noqa: ANN002, ANN003
+        raise AssertionError("--version should not enter full startup")
+
+    monkeypatch.setattr(main_module, "_configure_startup_debug", _unexpected_startup)
+    monkeypatch.setattr(main_module, "_ensure_import_paths", _unexpected_startup)
+    monkeypatch.setattr(main_module, "_ensure_git_dependency", _unexpected_startup)
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    exit_code = main_module.main(["--version"], stdout=stdout, stderr=stderr)
+
+    assert exit_code == 0
+    assert stdout.getvalue() == f"agenthub-cli {__version__}\n"
+    assert stderr.getvalue() == ""
+
+
+def test_main_prints_version_even_with_launcher_default_args() -> None:
+    stdout = io.StringIO()
+    stderr = io.StringIO()
+
+    exit_code = main_module.main(
+        [
+            "--sandbox-mode",
+            "workspace-write",
+            "--approval-policy",
+            "on-request",
+            "--version",
+        ],
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    assert stdout.getvalue() == f"agenthub-cli {__version__}\n"
+    assert stderr.getvalue() == ""
 
 
 def test_main_requires_git_before_runtime_start(monkeypatch: pytest.MonkeyPatch) -> None:

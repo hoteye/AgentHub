@@ -172,20 +172,26 @@ def load_provider_inputs(
     read_toml_fn: Callable[[Path], dict[str, Any]],
     read_json_fn: Callable[[Path], dict[str, Any]],
     read_user_model_selection_toml_fn: Callable[[], dict[str, Any]],
+    default_config_paths_fn: Callable[[], list[Path]] | None = None,
     private_config_paths_fn: Callable[[], list[Path]] | None = None,
     private_auth_paths_fn: Callable[[], list[Path]] | None = None,
     strict_isolation: bool = False,
 ) -> tuple[ProviderPathResolution, dict[str, Any], dict[str, Any]]:
     resolution = resolve_provider_paths_fn(cwd=cwd, strict_isolation=strict_isolation)
     home_config_path, home_auth_path, home_is_project_local = home_provider_paths_fn()
+    default_toml_data: dict[str, Any] = {}
     user_toml_data: dict[str, Any] = {}
     project_toml_data: dict[str, Any] = {}
     private_config_paths = list(
         private_config_paths_fn() if callable(private_config_paths_fn) else []
     )
     private_auth_paths = list(private_auth_paths_fn() if callable(private_auth_paths_fn) else [])
+    default_config_paths = list(
+        default_config_paths_fn() if callable(default_config_paths_fn) else []
+    )
+    existing_default_config_paths = [path for path in default_config_paths if path.exists()]
     if cwd is None or strict_isolation:
-        toml_paths = []
+        toml_paths = list(existing_default_config_paths)
         for path in private_config_paths:
             if path.exists() and path != resolution.config_path and path not in toml_paths:
                 toml_paths.append(path)
@@ -195,7 +201,10 @@ def load_provider_inputs(
         for path in toml_paths:
             payload = read_toml_fn(path)
             toml_data = merge_nested_mappings(toml_data, payload)
-            user_toml_data = merge_nested_mappings(user_toml_data, payload)
+            if path in existing_default_config_paths:
+                default_toml_data = merge_nested_mappings(default_toml_data, payload)
+            else:
+                user_toml_data = merge_nested_mappings(user_toml_data, payload)
         auth_paths = [resolution.auth_path] if resolution.auth_exists else []
         for path in private_auth_paths:
             if path.exists() and path not in auth_paths:
@@ -216,7 +225,7 @@ def load_provider_inputs(
             cwd=cwd,
             home_config_paths=config_home_paths,
         )
-        toml_paths = []
+        toml_paths = list(existing_default_config_paths)
         for path in config_home_paths:
             if path not in private_config_paths and path not in toml_paths:
                 toml_paths.append(path)
@@ -236,7 +245,9 @@ def load_provider_inputs(
         for path in toml_paths:
             payload = read_toml_fn(path)
             toml_data = merge_nested_mappings(toml_data, payload)
-            if path == home_config_path or path in private_config_paths:
+            if path in existing_default_config_paths:
+                default_toml_data = merge_nested_mappings(default_toml_data, payload)
+            elif path == home_config_path or path in private_config_paths:
                 user_toml_data = merge_nested_mappings(user_toml_data, payload)
             else:
                 project_toml_data = merge_nested_mappings(project_toml_data, payload)
@@ -259,7 +270,8 @@ def load_provider_inputs(
             user_model_selection=user_model_selection,
         )
         if project_toml_data:
-            toml_data = merge_nested_mappings(user_toml_data, project_toml_data)
+            toml_data = merge_nested_mappings(default_toml_data, user_toml_data)
+            toml_data = merge_nested_mappings(toml_data, project_toml_data)
             toml_data = _apply_user_model_selection(
                 toml_data=toml_data,
                 user_model_selection=user_model_selection,
@@ -269,6 +281,9 @@ def load_provider_inputs(
         project_toml_data=project_toml_data,
         merged_toml_data=toml_data,
     )
+    non_default_toml_paths = [
+        path for path in toml_paths if path not in existing_default_config_paths
+    ]
     effective_config_path = toml_paths[-1] if toml_paths else resolution.config_path
     effective_auth_path = auth_paths[-1] if auth_paths else resolution.auth_path
     effective_resolution = ProviderPathResolution(
@@ -281,7 +296,7 @@ def load_provider_inputs(
             and (
                 resolution.used_project_local
                 or home_is_project_local
-                or any(path != home_config_path for path in toml_paths)
+                or any(path != home_config_path for path in non_default_toml_paths)
                 or any(path != home_auth_path for path in auth_paths)
             )
         ),

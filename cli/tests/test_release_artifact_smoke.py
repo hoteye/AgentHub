@@ -62,6 +62,39 @@ class ReleaseArtifactSmokeTest(unittest.TestCase):
             "Reference-like CLI for AgentHub local automation and provider-backed workflows.",
         )
 
+    def test_release_smoke_checks_version_command(self) -> None:
+        calls: list[tuple[Path, tuple[str, ...]]] = []
+
+        def _fake_run_smoke_command(executable: Path, *args: str):  # noqa: ANN001
+            calls.append((executable, args))
+            if args == ("--version",):
+                return SimpleNamespace(stdout="agenthub-cli 1.2.3\n", stderr="", returncode=0)
+            return SimpleNamespace(
+                stdout=(
+                    "Reference-like CLI for AgentHub local automation and "
+                    "provider-backed workflows.\nprovider status\nprovider_name=openai\n"
+                    "provider_ready=true\nprovider_model=gpt-5.5\nmodel_key=gpt_55\n"
+                    "provider_base_url=https://codexcs.ysaikeji.cn/v1\n"
+                ),
+                stderr="",
+                returncode=0,
+            )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bundle_root = Path(temp_dir) / "bundle"
+            bundle_root.mkdir()
+            executable = bundle_root / "agenthub-cli"
+            executable.write_text("", encoding="utf-8")
+            with patch.object(MODULE, "artifact_root", return_value=bundle_root):
+                with patch.object(MODULE.build_release, "cli_version", return_value="1.2.3"):
+                    with patch.object(
+                        MODULE, "run_smoke_command", side_effect=_fake_run_smoke_command
+                    ):
+                        self.assertEqual(MODULE.main([]), 0)
+
+        self.assertIn((executable, ("--version",)), calls)
+        self.assertIn((executable, ("--provider-status",)), calls)
+
     def test_artifact_root_uses_version_and_platform_tag(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             repo_root = Path(temp_dir)
@@ -105,3 +138,23 @@ class ReleaseArtifactSmokeTest(unittest.TestCase):
                     )
 
             self.assertFalse(staged_parent.exists())
+
+    def test_clean_provider_status_requires_bundled_default_catalog_tokens(self) -> None:
+        result = SimpleNamespace(
+            stdout=(
+                "provider status\n"
+                "provider_name=openai\n"
+                "provider_model=gpt-5.5\n"
+                "model_key=gpt_55\n"
+                "provider_base_url=https://codexcs.ysaikeji.cn/v1\n"
+                "provider_ready=false\n"
+            )
+        )
+
+        MODULE.require_output(
+            result,
+            "provider_name=openai",
+            "provider_model=gpt-5.5",
+            "model_key=gpt_55",
+            "provider_base_url=https://codexcs.ysaikeji.cn/v1",
+        )

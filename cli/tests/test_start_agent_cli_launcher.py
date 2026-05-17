@@ -203,6 +203,25 @@ def test_launcher_does_not_warn_about_tmux_for_headless_args(tmp_path: Path) -> 
     assert "--provider-status" in result.stdout
 
 
+def test_launcher_treats_version_as_direct_cli_mode(tmp_path: Path) -> None:
+    fake_bin = _fake_command_path(tmp_path, "git", "bash", "dirname", "mkdir", "ps", "date", "tr")
+    script = textwrap.dedent(
+        f"""
+        set -euo pipefail
+        export PATH={shlex.quote(str(fake_bin))}
+        export AGENTHUB_PYTHON=/bin/echo
+        export AGENTHUB_START_DEBUG_LOG={shlex.quote(str(tmp_path / "start.log"))}
+        source {shlex.quote(str(LAUNCHER))} --version
+        """
+    )
+
+    result = _run_launcher_with_pty(["bash", "-c", script], cwd=CLI_ROOT, env=os.environ.copy())
+
+    assert result.returncode == 0
+    assert "preview panes need tmux" not in result.stderr
+    assert "--version" in result.stdout
+
+
 def test_launcher_can_wrap_packaged_cli_executable_without_python(tmp_path: Path) -> None:
     fake_bin = _fake_command_path(tmp_path, "git", "bash", "dirname", "mkdir", "ps", "date", "tr")
     fake_cli = tmp_path / "agenthub-cli"
@@ -253,6 +272,26 @@ def test_launcher_ignores_job_control_stop_signals_across_exec() -> None:
     assert "trap -- '' SIGTSTP" in log_text
     assert "trap -- '' SIGTTIN" in log_text
     assert "trap -- '' SIGTTOU" in log_text
+
+
+def test_launcher_creates_debug_log_parent_directory(tmp_path: Path) -> None:
+    log_path = tmp_path / "nested" / "start_agent_cli_test.log"
+    env = os.environ.copy()
+    env["AGENTHUB_PYTHON"] = "/bin/echo"
+    env["AGENTHUB_START_DEBUG_LOG"] = str(log_path)
+
+    result = subprocess.run(
+        ["bash", str(LAUNCHER), "--provider-status"],
+        cwd=CLI_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert log_path.exists()
+    assert "script.enter" in log_path.read_text(encoding="utf-8")
 
 
 def test_launcher_configures_preview_drag_copy_to_clipboard(tmp_path) -> None:

@@ -129,11 +129,16 @@ command -v "$AGENTHUB_COMMAND_NAME" >/dev/null 2>&1 || fail "installed command i
 grep -qi "agenthub" /tmp/agenthub-help.txt || fail "help output did not mention AgentHub"
 
 "$AGENTHUB_COMMAND_NAME" --provider-status >/tmp/agenthub-provider-status.txt
-grep -q "provider_name=" /tmp/agenthub-provider-status.txt || fail "provider status missing provider_name"
+grep -q "provider_name=openai" /tmp/agenthub-provider-status.txt || fail "provider status missing bundled openai provider"
+grep -q "provider_model=gpt-5.5" /tmp/agenthub-provider-status.txt || fail "provider status missing bundled gpt-5.5 model"
+grep -q "model_key=gpt_55" /tmp/agenthub-provider-status.txt || fail "provider status missing bundled gpt_55 alias"
+grep -q "provider_base_url=https://codexcs.ysaikeji.cn/v1" /tmp/agenthub-provider-status.txt || fail "provider status missing bundled codexcs base_url"
 grep -q "provider_ready=" /tmp/agenthub-provider-status.txt || fail "provider status missing provider_ready"
 
-"$AGENTHUB_COMMAND_NAME" --headless --prompt "/provider" --json >/tmp/agenthub-provider.json
+"$AGENTHUB_COMMAND_NAME" --headless --prompt "/provider verbose" --json >/tmp/agenthub-provider.json
 grep -q "provider status" /tmp/agenthub-provider.json || fail "headless provider output missing provider status"
+grep -q "provider_model=gpt-5.5" /tmp/agenthub-provider.json || fail "headless provider output missing bundled model"
+grep -q "model_key=gpt_55" /tmp/agenthub-provider.json || fail "headless provider output missing bundled alias"
 
 rm -rf "$HOME/.local/agenthub-cli" "$HOME/.local/bin/$AGENTHUB_COMMAND_NAME"
 hash -r

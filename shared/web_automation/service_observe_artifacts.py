@@ -14,6 +14,13 @@ from shared.web_automation.observe import (
     read_error_entries,
     read_request_entries,
 )
+from shared.web_automation.service_observe_artifacts_projection import (
+    project_highlight_result,
+    project_request_entries,
+    project_trace_start_result,
+    project_trace_start_reused_result,
+    project_trace_stop_result,
+)
 from shared.web_automation.snapshot import build_snapshot
 from shared.web_automation.types import BrowserArtifact, BrowserConsoleEntry, BrowserSnapshot
 
@@ -80,28 +87,7 @@ class BrowserServiceObserveArtifactsMixin:
         if tab is None:
             return None
         entries = read_request_entries(tab, limit=limit or 100, outcome=outcome, method=method)
-        requests: list[dict[str, object]] = []
-        for entry in entries:
-            location = dict(entry.location or {})
-            status_value = location.get("status")
-            try:
-                status: int | str | None = int(status_value) if status_value is not None else None
-            except (TypeError, ValueError):
-                status = str(status_value) if status_value is not None else None
-            payload: dict[str, object] = {
-                "method": str(location.get("method") or "").strip().upper(),
-                "status": status,
-                "resource_type": str(location.get("resource_type") or location.get("resource") or "").strip(),
-                "url": str(location.get("url") or tab.url or "").strip(),
-                "outcome": str(location.get("outcome") or "").strip().lower(),
-                "message": entry.text,
-                "timestamp": entry.timestamp,
-            }
-            request_id = str(location.get("request_id") or "").strip()
-            if request_id:
-                payload["request_id"] = request_id
-            requests.append(payload)
-        return requests
+        return project_request_entries(entries, fallback_url=tab.url)
 
     def screenshot(
         self,
@@ -186,33 +172,18 @@ class BrowserServiceObserveArtifactsMixin:
             location={"url": tab.url, "ref": normalized_ref},
         )
         self._persist_if_needed()
-        return {
-            "ok": True,
-            "action": "highlight",
-            "target_id": tab.tab_id,
-            "profile": tab.profile,
-            "url": tab.url,
-            "title": tab.title,
-            "ref": normalized_ref,
-            "role": target_ref.role,
-            "name": target_ref.name,
-            "highlight_mode": mode,
-            "duration_ms": duration_ms,
-            "artifact": {
-                "artifact_id": artifact.artifact_id,
-                "kind": artifact.kind,
-                "path": artifact.path,
-                "content_type": artifact.content_type,
-                "size_bytes": artifact.size_bytes,
-                "created_at": artifact.created_at,
-                "url": artifact.url,
-                "title": artifact.title,
-                "ref": artifact.ref,
-                "suggested_filename": artifact.suggested_filename,
-            },
-        }
+        return project_highlight_result(
+            tab=tab,
+            target_ref=target_ref,
+            normalized_ref=normalized_ref,
+            mode=mode,
+            duration_ms=duration_ms,
+            artifact=artifact,
+        )
 
-    def pdf(self, *, target_id: str | None = None, profile: str | None = None) -> BrowserArtifact | None:
+    def pdf(
+        self, *, target_id: str | None = None, profile: str | None = None
+    ) -> BrowserArtifact | None:
         tab = self._resolve_tab(target_id=target_id, profile=profile)
         if tab is None:
             return None
@@ -258,7 +229,9 @@ class BrowserServiceObserveArtifactsMixin:
             return None
         if self._is_live_mode():
             assert self._live_driver is not None
-            return self._live_driver.wait_for_download(tab, timeout_ms=timeout_ms, requested_path=path)
+            return self._live_driver.wait_for_download(
+                tab, timeout_ms=timeout_ms, requested_path=path
+            )
         artifact = emit_waited_download_artifact(tab, requested_path=path)
         self._persist_if_needed()
         return artifact
@@ -278,16 +251,7 @@ class BrowserServiceObserveArtifactsMixin:
             current["target_id"] = tab.tab_id
             current["url"] = tab.url
             current["title"] = tab.title
-            return {
-                "ok": True,
-                "action": "trace_start",
-                "profile": profile_name,
-                "target_id": tab.tab_id,
-                "trace_id": current.get("trace_id"),
-                "capture_mode": current.get("mode") or "debug_bundle",
-                "status": "active",
-                "reused": True,
-            }
+            return project_trace_start_reused_result(tab=tab, session=current)
         mode = "debug_bundle"
         if self._is_live_mode():
             assert self._live_driver is not None
@@ -313,16 +277,7 @@ class BrowserServiceObserveArtifactsMixin:
             location={"url": tab.url},
         )
         self._persist_if_needed()
-        return {
-            "ok": True,
-            "action": "trace_start",
-            "profile": profile_name,
-            "target_id": tab.tab_id,
-            "trace_id": session["trace_id"],
-            "capture_mode": mode,
-            "started_at": session["started_at"],
-            "status": "active",
-        }
+        return project_trace_start_result(tab=tab, session=session, mode=mode)
 
     def trace_stop(
         self,
@@ -339,7 +294,9 @@ class BrowserServiceObserveArtifactsMixin:
         if not session or session.get("status") != "active":
             raise ValueError("trace capture is not active")
         cookies = self.cookies(target_id=tab.tab_id, profile=profile_name) or []
-        storage_state = self.storage_state(target_id=tab.tab_id, profile=profile_name) or {"origins": []}
+        storage_state = self.storage_state(target_id=tab.tab_id, profile=profile_name) or {
+            "origins": []
+        }
         capture_mode = str(session.get("mode") or "debug_bundle").strip() or "debug_bundle"
         artifact: BrowserArtifact
         if capture_mode == "playwright_trace" and self._is_live_mode():
@@ -355,7 +312,9 @@ class BrowserServiceObserveArtifactsMixin:
                 )
                 capture_mode = "debug_bundle"
             else:
-                output_path = self._trace_output_path(tab, trace_id=str(session["trace_id"]), requested_path=path)
+                output_path = self._trace_output_path(
+                    tab, trace_id=str(session["trace_id"]), requested_path=path
+                )
                 context.tracing.stop(path=str(output_path))
                 artifact = record_artifact(
                     tab,
@@ -385,24 +344,9 @@ class BrowserServiceObserveArtifactsMixin:
             location={"url": tab.url},
         )
         self._persist_if_needed()
-        return {
-            "ok": True,
-            "action": "trace_stop",
-            "profile": profile_name,
-            "target_id": tab.tab_id,
-            "trace_id": session["trace_id"],
-            "capture_mode": capture_mode,
-            "artifact": {
-                "artifact_id": artifact.artifact_id,
-                "kind": artifact.kind,
-                "path": artifact.path,
-                "content_type": artifact.content_type,
-                "size_bytes": artifact.size_bytes,
-                "created_at": artifact.created_at,
-                "url": artifact.url,
-                "title": artifact.title,
-                "ref": artifact.ref,
-                "suggested_filename": artifact.suggested_filename,
-            },
-        }
-
+        return project_trace_stop_result(
+            tab=tab,
+            session=session,
+            capture_mode=capture_mode,
+            artifact=artifact,
+        )

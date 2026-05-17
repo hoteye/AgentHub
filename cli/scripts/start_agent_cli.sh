@@ -16,12 +16,18 @@ DEFAULT_APPROVAL_POLICY="${AGENTHUB_DEFAULT_APPROVAL_POLICY:-on-request}"
 DEFAULT_DEBUG_LOG_DIR="${AGENTHUB_DEFAULT_DEBUG_LOG_DIR:-${CLI_ROOT}/logs/live_debug}"
 START_DEBUG_LOG="${AGENTHUB_START_DEBUG_LOG:-/tmp/agenthub-start-debug.log}"
 
+ensure_start_debug_log_parent() {
+    local log_dir
+    log_dir="$(dirname "${START_DEBUG_LOG}")"
+    mkdir -p "${log_dir}" 2>/dev/null || true
+}
+
 has_explicit_run_mode() {
     local args=("$@")
     local i=0
     while ((i < ${#args[@]})); do
         case "${args[$i]}" in
-            --headless|--serve|--resume|--resume-last|--resume-path|--provider-status|--stdin|--prompt|--json|--jsonl|--output-format|resume)
+            --version|-V|--headless|--serve|--resume|--resume-last|--resume-path|--provider-status|--stdin|--prompt|--json|--jsonl|--output-format|resume)
                 return 0
                 ;;
         esac
@@ -51,6 +57,7 @@ _process_field() {
 
 debug_log() {
     local message="${1:-}"
+    ensure_start_debug_log_parent
     {
         printf '[%s] pid=%s ppid=%s pgid=%s sid=%s tpgid=%s tty=%s shell_flags=%s %s\n' \
             "$(date '+%Y-%m-%dT%H:%M:%S%z')" \
@@ -66,6 +73,7 @@ debug_log() {
 }
 
 debug_snapshot() {
+    ensure_start_debug_log_parent
     {
         printf '[%s] snapshot startup_cwd=%s cli_root=%s python=%s textual_allow_signals=%s args=%s\n' \
             "$(date '+%Y-%m-%dT%H:%M:%S%z')" \
@@ -359,6 +367,7 @@ Permission and runtime args:
       Network availability for the session.
 
 Headless args:
+  --version
   --headless --prompt "..."
   --stdin
   --output-format text|json|stream-json

@@ -28,6 +28,7 @@ class ProviderFacadePathRuntimeBindings:
     provider_discovery_feature_settings: Callable[[], dict[str, Any]]
     provider_discovery_strict_isolation_enabled: Callable[[], bool]
     home_provider_paths: Callable[[], tuple[Path, Path, bool]]
+    default_config_paths: Callable[[], list[Path]]
     private_provider_auth_paths: Callable[[], list[Path]]
     private_provider_config_paths: Callable[[], list[Path]]
     project_claude_home_dir: Callable[[], Path | None]
@@ -103,6 +104,9 @@ def bind_path_runtime(
     def _home_provider_paths() -> tuple[Path, Path, bool]:
         return _runtime.home_provider_paths(deps=deps_factory())
 
+    def _default_config_paths() -> list[Path]:
+        return _runtime.default_provider_config_paths(deps=deps_factory())
+
     def _private_provider_auth_paths() -> list[Path]:
         return _runtime.private_provider_auth_paths(deps=deps_factory())
 
@@ -151,6 +155,7 @@ def bind_path_runtime(
             "_provider_discovery_strict_isolation_enabled",
         ),
         (_home_provider_paths, "_home_provider_paths"),
+        (_default_config_paths, "_default_provider_config_paths"),
         (_private_provider_auth_paths, "_private_provider_auth_paths"),
         (_private_provider_config_paths, "_private_provider_config_paths"),
         (_project_claude_home_dir, "_project_claude_home_dir"),
@@ -175,6 +180,7 @@ def bind_path_runtime(
         provider_discovery_feature_settings=_provider_discovery_feature_settings,
         provider_discovery_strict_isolation_enabled=_provider_discovery_strict_isolation_enabled,
         home_provider_paths=_home_provider_paths,
+        default_config_paths=_default_config_paths,
         private_provider_auth_paths=_private_provider_auth_paths,
         private_provider_config_paths=_private_provider_config_paths,
         project_claude_home_dir=_project_claude_home_dir,

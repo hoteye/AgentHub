@@ -101,6 +101,7 @@ class ProviderConfig:
             "config_path": self.config_path,
             "auth_path": self.auth_path,
             "auth_mode": self.auth_mode,
+            "api_key_present": bool(str(self.api_key or "").strip()),
             "auth": dict(self.auth),
             "auth_status": self.auth_status,
             "token_source": self.token_source,

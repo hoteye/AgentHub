@@ -7,6 +7,7 @@ from cli.agent_cli import (
     app_runtime_flow_normalization_helpers_runtime as normalization_helpers_runtime,
 )
 from cli.agent_cli import app_runtime_flow_projection_helpers_runtime as projection_helpers_runtime
+from cli.agent_cli import app_runtime_flow_prompt_runtime as prompt_runtime
 from cli.agent_cli import app_runtime_flow_pure_helpers_runtime as pure_helpers_runtime
 from cli.agent_cli import (
     app_runtime_flow_request_user_input_flow_helpers_runtime as request_user_input_flow_helpers_runtime,
@@ -17,14 +18,8 @@ from cli.agent_cli.app_runtime_flow_request_user_input_helpers import (
     _PendingRequestUserInput,
 )
 from cli.agent_cli.models import PromptAttachment
-from cli.agent_cli.slash_parser import parse_slash_invocation
 from cli.agent_cli.startup_debug import startup_log
-from cli.agent_cli.ui import (
-    enqueue_runtime_request,
-    request_worker_loop,
-    transcript_preview_pane,
-    wait_for_runtime_idle,
-)
+from cli.agent_cli.ui import transcript_preview_pane
 
 
 class AppRuntimeFlowMixin:
@@ -107,12 +102,7 @@ class AppRuntimeFlowMixin:
         return True
 
     def _on_runtime_request_start(self, text: str) -> None:
-        normalized = normalization_helpers_runtime.normalize_runtime_request_text(text)
-        self._active_runtime_request_text = normalized
-        self._active_runtime_request_is_slash = pure_helpers_runtime.is_slash_command_text(
-            normalized
-        )
-        self._set_top_title_from_prompt(normalized)
+        prompt_runtime.on_runtime_request_start(self, text)
 
     def _request_user_input_notice_text(
         self,
@@ -271,13 +261,8 @@ class AppRuntimeFlowMixin:
         priority: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> None:
-        normalized_text = str(text or "").strip()
-        if self._approval_command_targets_inactive_tab(normalized_text):
-            return
-        if not pure_helpers_runtime.is_slash_command_text(normalized_text):
-            self._queued_run_labels.append(normalized_text)
-        await enqueue_runtime_request(
-            self._request_queue,
+        await prompt_runtime.enqueue_runtime_request(
+            self,
             text,
             attachments,
             display_text=display_text,
@@ -287,167 +272,38 @@ class AppRuntimeFlowMixin:
         )
 
     def _approval_command_targets_inactive_tab(self, text: str) -> bool:
-        normalized_text = str(text or "").strip()
-        if not pure_helpers_runtime.is_slash_command_text(normalized_text):
-            return False
-        try:
-            invocation = parse_slash_invocation(normalized_text, source="tui")
-        except ValueError:
-            return False
-        if invocation.command_name not in {"approve", "reject"}:
-            return False
-        approval_id = next(
-            (
-                str(item or "").strip()
-                for item in tuple(getattr(invocation, "positionals", ()) or ())
-                if str(item or "").strip()
-            ),
-            "",
-        )
-        if not approval_id:
-            return False
-        owner_lookup = getattr(self, "_tab_id_for_pending_approval", None)
-        if not callable(owner_lookup):
-            return False
-        owner_tab_id = str(owner_lookup(approval_id) or "").strip()
-        if not owner_tab_id:
-            return False
-        active_tab_id = str(
-            getattr(getattr(self, "_tab_manager", None), "active_tab_id", "") or ""
-        ).strip()
-        if not active_tab_id or owner_tab_id == active_tab_id:
-            return False
-        try:
-            self._write_system_notice(
-                self._t(
-                    "system.approval_wrong_tab",
-                    approval_id=approval_id,
-                    tab_id=owner_tab_id,
-                )
-            )
-        except Exception:
-            pass
-        try:
-            self._refresh_tab_pending_interaction_indicators()
-        except Exception:
-            pass
-        try:
-            self._focus_input()
-        except Exception:
-            pass
-        return True
+        return prompt_runtime.approval_command_targets_inactive_tab(self, text)
 
     async def _request_worker_loop(self) -> None:
-        await request_worker_loop(
-            queue=self._request_queue,
-            runtime=self.runtime,
-            set_busy=self._set_busy,
-            on_request_start=self._on_runtime_request_start,
-            on_request_echo=self._write_user_prompt,
-            begin_activity_capture=self._begin_activity_capture,
-            render_response=self._render_response,
-            handle_response=self._handle_runtime_response,
-            write_assistant_reply=self._write_assistant_reply,
-            on_idle=self._focus_input,
-        )
+        await prompt_runtime.request_worker_loop(self)
 
     async def _wait_for_runtime_idle(self) -> None:
-        await wait_for_runtime_idle(self._request_queue)
+        await prompt_runtime.wait_for_runtime_idle(self)
 
     def _handle_runtime_response(self, response: object) -> None:
-        payload = self._exit_request_payload(response)
-        if payload is not None:
-            startup_log("app.handle_runtime_response.exit_request")
-            exit_projection = projection_helpers_runtime.exit_request_projection(payload)
-            self._exit_requested = True
-            self._exit_thread_id = exit_projection.thread_id
-            self._exit_resume_command = exit_projection.resume_command
-            self._exit_summary_requires_post_run_print = True
-            self.call_after_refresh(self._exit_after_command)
-            return
-        if pure_helpers_runtime.close_tab_request_payload(response) is not None:
-            tab_count = len(getattr(getattr(self, "_tab_manager", None), "_tabs", {}) or {})
-            startup_log(f"app.handle_runtime_response.close_tab_request tabs={tab_count}")
-            if self._tab_manager is not None and len(self._tab_manager._tabs) > 1:
-                self.call_after_refresh(self.action_close_tab)
-            else:
-                self.call_after_refresh(self._exit_after_command)
-            return
-        preview_payload = pure_helpers_runtime.preview_control_request_payload(response)
-        if preview_payload is not None:
-            self.call_after_refresh(
-                self._handle_preview_control_request,
-                str(preview_payload.get("action") or "toggle"),
-            )
-            return
+        prompt_runtime.handle_runtime_response(self, response)
 
     @staticmethod
     def _exit_request_payload(response: object) -> dict[str, object] | None:
-        return pure_helpers_runtime.exit_request_payload(response)
+        return prompt_runtime.exit_request_payload(response)
 
     def action_split_open(self) -> None:
-        self._handle_preview_control_request("open")
-        self._refresh_split_toggle_button()
+        prompt_runtime.action_split_open(self)
 
     def action_split_close(self) -> None:
-        self._handle_preview_control_request("close")
-        self._refresh_split_toggle_button()
+        prompt_runtime.action_split_close(self)
 
     def _handle_preview_control_request(self, action: str) -> None:
-        normalized = str(action or "toggle").strip().lower() or "toggle"
-        if normalized == "status":
-            self._write_system_notice(self._preview_control_status_text())
-            self._focus_input()
-            return
-        if normalized == "toggle":
-            normalized = "open" if self._preview_pane_disabled_or_missing() else "close"
-        if normalized == "close":
-            transcript_preview_pane.set_preview_pane_user_disabled(True)
-            closed = transcript_preview_pane.close_preview_pane()
-            key = "system.preview_pane.closed" if closed else "system.preview_pane.already_closed"
-            self._write_system_notice(self._t(key))
-            self._focus_input()
-            return
-        if normalized == "open":
-            transcript_preview_pane.set_preview_pane_user_disabled(False)
-            pane = transcript_preview_pane.open_preview_pane()
-            key = "system.preview_pane.opened" if pane else "system.preview_pane.unavailable"
-            self._write_system_notice(self._t(key))
-            self._focus_input()
-            return
-        self._write_system_notice(self._t("system.preview_pane.usage"))
-        self._focus_input()
+        prompt_runtime.handle_preview_control_request(self, action)
 
     def _preview_pane_disabled_or_missing(self) -> bool:
-        if transcript_preview_pane.preview_pane_user_disabled():
-            return True
-        pane = str(os.environ.get("AGENTHUB_PREVIEW_PANE") or "").strip()
-        if not pane:
-            return True
-        return not transcript_preview_pane.preview_pane_exists(pane)
+        return prompt_runtime.preview_pane_disabled_or_missing()
 
     def _refresh_split_toggle_button(self) -> None:
-        try:
-            from textual.widgets import Static
-
-            btn = self.query_one("#split_toggle_btn", Static)
-            is_open = not self._preview_pane_disabled_or_missing()
-            compact = int(getattr(getattr(btn, "size", None), "width", 0) or 2) < 2
-            if compact:
-                icon = "<" if is_open else ">"
-            else:
-                icon = "<<" if is_open else ">>"
-            btn.update(icon)
-        except Exception:
-            pass
+        prompt_runtime.refresh_split_toggle_button(self)
 
     def _preview_control_status_text(self) -> str:
-        if transcript_preview_pane.preview_pane_user_disabled():
-            return self._t("system.preview_pane.disabled")
-        pane = str(os.environ.get("AGENTHUB_PREVIEW_PANE") or "").strip()
-        if pane and transcript_preview_pane.preview_pane_exists(pane):
-            return self._t("system.preview_pane.open_status", pane=pane)
-        return self._t("system.preview_pane.closed_status")
+        return prompt_runtime.preview_control_status_text(self)
 
     def _exit_after_command(self) -> None:
         startup_log(

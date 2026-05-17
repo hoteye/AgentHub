@@ -249,16 +249,40 @@ BUNDLE_ROOT="$(dirname "$EXE")"
 log "Check bundled runtime assets"
 find "$BUNDLE_ROOT" -path '*/interaction_profiles/schema/interaction_profile.schema.json' -type f | grep -q . \
   || fail "missing bundled interaction profile schema"
+find "$BUNDLE_ROOT" -path '*/config/provider_catalog.toml' -type f | grep -q . \
+  || fail "missing bundled provider catalog"
 [[ -f "$BUNDLE_ROOT/_internal/LICENSE" || -f "$BUNDLE_ROOT/LICENSE" ]] || fail "missing bundled Apache-2.0 LICENSE"
 
 log "Check public release boundary"
 if find "$BUNDLE_ROOT" -path '*/plugins/psbc_policy*' -print -quit | grep -q .; then
   fail "release bundle contains commercial psbc_policy plugin"
 fi
+if find "$BUNDLE_ROOT" -path '*/.config*' -print -quit | grep -q .; then
+  fail "release bundle contains private .config data"
+fi
 
 log "Release help smoke"
 "$EXE" --help >/tmp/agenthub_release_help.txt
 grep -q "Reference-like CLI" /tmp/agenthub_release_help.txt || fail "help smoke missing expected text"
+
+log "Release version smoke"
+"$EXE" --version >/tmp/agenthub_release_version.txt
+grep -q "^agenthub-cli " /tmp/agenthub_release_version.txt || fail "version smoke missing expected text"
+
+log "Clean provider catalog smoke"
+env -i \
+  PATH="/usr/bin:/bin" \
+  HOME="$VERIFY_ROOT/catalog-home" \
+  AGENT_CLI_HOME="$VERIFY_ROOT/catalog-state" \
+  TERM="xterm-256color" \
+  LANG="C.UTF-8" \
+  LC_ALL="C.UTF-8" \
+  PYTHONUTF8="1" \
+  "$EXE" --provider-status >"$VERIFY_ROOT/clean-provider-status.txt"
+grep -q "provider_name=openai" "$VERIFY_ROOT/clean-provider-status.txt" || fail "clean provider status missing bundled openai provider"
+grep -q "provider_model=gpt-5.5" "$VERIFY_ROOT/clean-provider-status.txt" || fail "clean provider status missing bundled gpt-5.5 model"
+grep -q "model_key=gpt_55" "$VERIFY_ROOT/clean-provider-status.txt" || fail "clean provider status missing bundled gpt_55 alias"
+grep -q "provider_base_url=https://codexcs.ysaikeji.cn/v1" "$VERIFY_ROOT/clean-provider-status.txt" || fail "clean provider status missing bundled codexcs base_url"
 
 log "Empty install TUI should show Welcome"
 run_tui_probe \

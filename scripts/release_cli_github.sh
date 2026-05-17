@@ -260,7 +260,11 @@ run_source_tests() {
       cli/tests/test_build_release.py \
       cli/tests/test_codex_sidecar_artifact.py \
       cli/tests/test_prepare_codex_sidecar_runtime.py \
+      cli/tests/test_release_artifact_smoke.py \
       cli/tests/test_release_version_check.py \
+      cli/tests/test_release_workflow_dependencies.py \
+      cli/tests/test_start_agent_cli_launcher.py \
+      cli/tests/test_main_subcommands_mcp_plugin.py \
       tests/test_update_agenthubpublish.py \
       cli/tests/test_tab_session_manager.py
     "$PYTHON_BIN" scripts/run_governance_guards.py --mode fast
@@ -286,7 +290,11 @@ run_public_tests() {
       tests/test_update_agenthubpublish.py \
       cli/tests/test_tab_session_manager.py \
       cli/tests/test_build_release.py \
-      cli/tests/test_codex_sidecar_artifact.py
+      cli/tests/test_codex_sidecar_artifact.py \
+      cli/tests/test_release_artifact_smoke.py \
+      cli/tests/test_release_workflow_dependencies.py \
+      cli/tests/test_start_agent_cli_launcher.py \
+      cli/tests/test_main_subcommands_mcp_plugin.py
   )
 }
 

@@ -89,15 +89,25 @@ def provider_status(
     session_delegate_overrides_fn: Callable[[Any], dict[str, dict[str, Any]]],
     resolution_status_label_fn: Callable[[Any], str],
 ) -> dict[str, str]:
-    def _append_management_surface(status: dict[str, Any]) -> dict[str, Any]:
+    def _append_management_surface(
+        status: dict[str, Any],
+        *,
+        api_key_present: bool = False,
+        active_provider_ready: Any | None = None,
+    ) -> dict[str, Any]:
         _append_provider_source_semantics(status)
         _append_session_provider_override_source(agent, status)
         status.update(
             provider_management_surface_fields(
                 auth_mode=status.get("auth_mode"),
                 auth_status=status.get("auth_status"),
+                api_key_present=api_key_present,
                 no_auth_guardrail_pass=status.get("no_auth_guardrail_pass"),
-                active_provider_ready=status.get("provider_ready"),
+                active_provider_ready=(
+                    status.get("provider_ready")
+                    if active_provider_ready is None
+                    else active_provider_ready
+                ),
                 availability_status=status.get("availability_status"),
                 availability_failure_code=status.get("availability_failure_code"),
                 availability_retry_after_seconds=status.get("availability_retry_after_seconds"),
@@ -134,6 +144,13 @@ def provider_status(
             host_platform=agent.host_platform,
             public_provider_name_fn=_public_provider_name,
         )
+        api_key_present = bool(summary.get("api_key_present"))
+        if (
+            planner is None
+            and str(status.get("auth_mode") or "").strip().lower() == "api_key"
+            and not api_key_present
+        ):
+            status["provider_ready"] = "false"
         if planner is not None:
             agent_status_projection.append_route_and_delegate_resolution_labels(
                 status,
@@ -171,7 +188,11 @@ def provider_status(
             model=ready_model,
             stale_after_seconds=stale_after_seconds,
         )
-        return _append_management_surface(status)
+        return _append_management_surface(
+            status,
+            api_key_present=api_key_present,
+            active_provider_ready=planner is not None,
+        )
     status = agent_status_projection.build_pending_provider_status(
         agent._session_provider_env_overrides,
         planner_error=agent._planner_error,
@@ -202,4 +223,4 @@ def provider_status(
         model=pending_model,
         stale_after_seconds=stale_after_seconds,
     )
-    return _append_management_surface(status)
+    return _append_management_surface(status, active_provider_ready=False)

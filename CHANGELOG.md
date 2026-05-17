@@ -8,6 +8,12 @@ The format is based on Keep a Changelog, with one release section per published 
 
 No unreleased changes yet.
 
+## [0.1.17] - 2026-05-17
+
+### Fixed
+
+- Bundled the default provider catalog into release artifacts so fresh installs now resolve `gpt_55` to `gpt-5.5` with the codexcs OpenAI base URL.
+
 ## [0.1.16] - 2026-05-16
 
 ### Changed

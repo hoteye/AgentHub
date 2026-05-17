@@ -115,14 +115,30 @@ def main(argv: list[str] | None = None) -> int:
             "Reference-like CLI for AgentHub local automation and provider-backed workflows.",
         )
 
+        version_result = run_smoke_command(executable, "--version")
+        require_output(version_result, f"agenthub-cli {build_release.cli_version()}")
+
         provider_result = run_smoke_command(executable, "--provider-status")
-        require_output(provider_result, "provider status", "provider_name=", "provider_ready=")
+        require_output(
+            provider_result,
+            "provider status",
+            "provider_name=openai",
+            "provider_model=gpt-5.5",
+            "model_key=gpt_55",
+            "provider_base_url=https://codexcs.ysaikeji.cn/v1",
+            "provider_ready=",
+        )
 
         headless_provider_result = run_smoke_command(
-            executable, "--headless", "--prompt", "/provider"
+            executable, "--headless", "--prompt", "/provider verbose"
         )
         require_output(
-            headless_provider_result, "provider status", "provider_name=", "provider_ready="
+            headless_provider_result,
+            "provider status",
+            "provider_name=openai",
+            "provider_model=gpt-5.5",
+            "model_key=gpt_55",
+            "provider_ready=",
         )
 
     print(f"release smoke ok: {bundle_root}")

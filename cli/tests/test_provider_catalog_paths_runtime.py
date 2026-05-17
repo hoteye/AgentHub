@@ -147,6 +147,117 @@ def test_load_provider_inputs_keeps_user_selection_after_project_overlay() -> No
     assert toml_data["model_reasoning_effort"] == "high"
 
 
+def test_load_provider_inputs_merges_bundled_defaults_before_user_and_project(
+    tmp_path: Path,
+) -> None:
+    default_config = tmp_path / "runtime" / "config" / "provider_catalog.toml"
+    home_config = tmp_path / "home" / "config.toml"
+    home_auth = tmp_path / "home" / "auth.json"
+    project_config = tmp_path / "project" / ".config" / "config.toml"
+    project_auth = tmp_path / "project" / ".config" / "auth.json"
+    for path in (default_config, home_config, project_config):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("", encoding="utf-8")
+    toml_payloads = {
+        default_config: {
+            "model_provider": "openai",
+            "model": "gpt_55",
+            "model_providers": {
+                "openai": {
+                    "base_url": "https://codexcs.ysaikeji.cn/v1",
+                    "wire_api": "responses",
+                    "default_model": "gpt_55",
+                },
+            },
+            "models": {
+                "gpt_55": {
+                    "provider": "openai",
+                    "model_id": "gpt-5.5",
+                },
+            },
+        },
+        home_config: {
+            "model_reasoning_effort": "high",
+            "model_providers": {
+                "openai": {
+                    "base_url": "https://user.example/v1",
+                },
+            },
+        },
+        project_config: {
+            "model_reasoning_effort": "xhigh",
+        },
+    }
+
+    resolution, toml_data, _auth_data = load_provider_inputs(
+        cwd=tmp_path / "project",
+        resolve_provider_paths_fn=lambda **_kwargs: ProviderPathResolution(
+            config_path=project_config,
+            auth_path=project_auth,
+            config_exists=True,
+            auth_exists=False,
+            used_project_local=True,
+        ),
+        home_provider_paths_fn=lambda: (home_config, home_auth, False),
+        discover_provider_project_local_paths_fn=lambda filename, **_kwargs: (
+            [project_config] if filename == "config.toml" else []
+        ),
+        read_toml_fn=lambda path: dict(toml_payloads.get(path, {})),
+        read_json_fn=lambda _path: {},
+        read_user_model_selection_toml_fn=lambda: {},
+        default_config_paths_fn=lambda: [default_config],
+    )
+
+    assert resolution.config_path == project_config
+    assert resolution.used_project_local is True
+    assert toml_data["model_provider"] == "openai"
+    assert toml_data["model"] == "gpt_55"
+    assert toml_data["model_reasoning_effort"] == "xhigh"
+    assert toml_data["model_providers"]["openai"]["base_url"] == "https://user.example/v1"
+    assert toml_data["model_providers"]["openai"]["wire_api"] == "responses"
+    assert toml_data["models"]["gpt_55"]["model_id"] == "gpt-5.5"
+
+
+def test_load_provider_inputs_uses_bundled_default_as_effective_config_when_alone(
+    tmp_path: Path,
+) -> None:
+    default_config = tmp_path / "runtime" / "config" / "provider_catalog.toml"
+    runtime_config = tmp_path / "home" / "config.toml"
+    runtime_auth = tmp_path / "home" / "auth.json"
+    default_config.parent.mkdir(parents=True, exist_ok=True)
+    default_config.write_text("", encoding="utf-8")
+
+    resolution, toml_data, _auth_data = load_provider_inputs(
+        cwd=None,
+        resolve_provider_paths_fn=lambda **_kwargs: ProviderPathResolution(
+            config_path=runtime_config,
+            auth_path=runtime_auth,
+            config_exists=False,
+            auth_exists=False,
+            used_project_local=False,
+        ),
+        home_provider_paths_fn=lambda: (runtime_config, runtime_auth, False),
+        discover_provider_project_local_paths_fn=lambda _filename, **_kwargs: [],
+        read_toml_fn=lambda path: (
+            {
+                "model_provider": "openai",
+                "model": "gpt_55",
+            }
+            if path == default_config
+            else {}
+        ),
+        read_json_fn=lambda _path: {},
+        read_user_model_selection_toml_fn=lambda: {},
+        default_config_paths_fn=lambda: [default_config],
+    )
+
+    assert resolution.config_path == default_config
+    assert resolution.config_exists is True
+    assert resolution.used_project_local is False
+    assert toml_data["model_provider"] == "openai"
+    assert toml_data["model"] == "gpt_55"
+
+
 def test_load_provider_inputs_merges_private_auth_after_project_auth(tmp_path: Path) -> None:
     home_config = tmp_path / "home" / "config.toml"
     home_auth = tmp_path / "home" / "auth.json"

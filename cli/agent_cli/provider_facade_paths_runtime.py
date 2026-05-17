@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,6 +56,7 @@ class ProviderFacadePathRuntimeDeps:
     home_provider_paths_fn: Callable[[], tuple[Path, Path, bool]]
     resolve_provider_paths_fn: Callable[..., ProviderPathResolution]
     discover_provider_project_local_paths_fn: Callable[..., list[Path]]
+    default_config_paths_fn: Callable[[], list[Path]]
     private_config_paths_fn: Callable[[], list[Path]]
     private_auth_paths_fn: Callable[[], list[Path]]
 
@@ -229,6 +231,22 @@ def _unique_paths(paths: list[Path]) -> list[Path]:
     return unique
 
 
+def default_provider_config_paths(*, deps: ProviderFacadePathRuntimeDeps) -> list[Path]:
+    candidates: list[Path] = []
+    try:
+        candidates.append(deps.runtime_project_root_fn() / "config" / "provider_catalog.toml")
+    except Exception:
+        pass
+    raw_meipass = str(getattr(sys, "_MEIPASS", "") or "").strip()
+    if raw_meipass:
+        candidates.append(Path(raw_meipass) / "config" / "provider_catalog.toml")
+    executable_parent = Path(sys.executable).resolve().parent
+    candidates.append(executable_parent / "config" / "provider_catalog.toml")
+    candidates.append(executable_parent / "_internal" / "config" / "provider_catalog.toml")
+    candidates.append(deps.app_dir.parents[1] / "config" / "provider_catalog.toml")
+    return _unique_paths(candidates)
+
+
 def private_provider_auth_paths(*, deps: ProviderFacadePathRuntimeDeps) -> list[Path]:
     paths: list[Path] = []
     if not str(deps.env_mapping.get("AGENT_CLI_HOME") or "").strip():
@@ -293,6 +311,7 @@ def load_provider_inputs(
         read_toml_fn=deps.read_toml_fn,
         read_json_fn=deps.read_json_fn,
         read_user_model_selection_toml_fn=deps.read_user_model_selection_toml_fn,
+        default_config_paths_fn=deps.default_config_paths_fn,
         private_config_paths_fn=deps.private_config_paths_fn,
         private_auth_paths_fn=deps.private_auth_paths_fn,
         strict_isolation=resolved_strict_isolation or explicit_runtime_home,

@@ -1,0 +1,27 @@
+# Public, non-secret default provider/model catalog bundled with AgentHub.
+# User API keys and private auth state must live in ~/.agent_cli/auth.json or
+# environment variables, never in this file.
+
+model_provider = "openai"
+model = "gpt_55"
+model_reasoning_effort = "xhigh"
+
+[model_providers.openai]
+name = "openai"
+base_url = "https://codexcs.ysaikeji.cn/v1"
+wire_api = "responses"
+requires_openai_auth = true
+api_key_env = "OPENAI_API_KEY"
+default_model = "gpt_55"
+
+[models.gpt_55]
+provider = "openai"
+model_id = "gpt-5.5"
+display_name = "GPT-5.5"
+planner_kind = "openai_responses"
+wire_api = "responses"
+supports_tools = true
+supports_reasoning = true
+supported_reasoning_efforts = ["low", "medium", "high", "xhigh"]
+default_reasoning_effort = ""
+interaction_profile = "codex_openai"

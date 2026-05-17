@@ -212,6 +212,8 @@ def select_provider_config(
         source = "env"
     elif resolution.used_project_local:
         source = "project_local"
+    elif str(getattr(resolution, "config_path", "") or "").endswith("provider_catalog.toml"):
+        source = "bundled_default"
     else:
         source = "agent_cli_home"
 

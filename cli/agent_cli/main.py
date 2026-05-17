@@ -31,6 +31,17 @@ def _ensure_git_dependency(*, stderr: TextIO | None = None) -> bool:
     return False
 
 
+def _argv_requests_version(argv: Sequence[str] | None) -> bool:
+    args = [str(item or "").strip() for item in list(argv or [])]
+    return any(arg in {"--version", "-V"} for arg in args)
+
+
+def _print_version(*, stdout: TextIO | None = None) -> None:
+    from cli.agent_cli import __version__
+
+    print(f"agenthub-cli {__version__}", file=stdout or sys.stdout)
+
+
 def _warn_missing_tmux_dependency_for_tui(
     argv: Sequence[str],
     *,
@@ -214,6 +225,10 @@ def main(
     stderr: TextIO | None = None,
 ) -> int:
     raw_argv = list(argv) if argv is not None else list(sys.argv[1:])
+    if _argv_requests_version(raw_argv):
+        _configure_stdio()
+        _print_version(stdout=stdout)
+        return 0
     try:
         _configure_startup_debug(raw_argv)
         _configure_stdio()

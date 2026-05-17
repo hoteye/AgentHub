@@ -73,6 +73,12 @@ def build_parser(
         help="shortcut for running /provider verbose in headless mode",
     )
     parser.add_argument(
+        "-V",
+        "--version",
+        action="store_true",
+        help="show the AgentHub CLI version and exit",
+    )
+    parser.add_argument(
         "--resume",
         metavar="THREAD_ID",
         help="resume an existing thread before executing the headless prompt",

@@ -52,6 +52,11 @@ class BuildReleaseScriptTest(unittest.TestCase):
             "cli/agent_cli/providers/interaction_profiles",
         )
         self.assertEqual(mappings[ROOT / "LICENSE"], ".")
+        self.assertEqual(
+            mappings[ROOT / "config"],
+            "config",
+        )
+        self.assertTrue((ROOT / "config" / "provider_catalog.toml").exists())
         self.assertTrue(
             (
                 cli_root
@@ -79,6 +84,7 @@ class BuildReleaseScriptTest(unittest.TestCase):
             )
         )
         self.assertFalse(any("psbc_policy" in source.parts for source in mappings))
+        self.assertFalse(any(part == ".config" for source in mappings for part in source.parts))
         self.assertFalse(any(".venv" in source.parts for source in mappings))
         self.assertFalse(any("chroma_db" in source.parts for source in mappings))
         self.assertFalse(any("_corpus_cache" in source.parts for source in mappings))
@@ -106,6 +112,9 @@ class BuildReleaseScriptTest(unittest.TestCase):
             add_data_values,
         )
         self.assertFalse(any("reference_baseline" in token for token in add_data_values))
+        self.assertFalse(
+            any("/.config" in token or "\\.config" in token for token in add_data_values)
+        )
         self.assertFalse(any("psbc_policy" in token for token in add_data_values))
         self.assertFalse(any(".venv" in token for token in add_data_values))
         self.assertFalse(any("chroma_db" in token for token in add_data_values))
@@ -290,7 +299,7 @@ class BuildReleaseScriptTest(unittest.TestCase):
             wrapper_text = wrapper.read_text(encoding="utf-8")
             self.assertIn("should_use_tmux_preview_layout", wrapper_text)
             self.assertIn('should_use_tmux_preview_layout "$@"', wrapper_text)
-            self.assertIn("--headless|--serve|--provider-status", wrapper_text)
+            self.assertIn("--version|-V|--headless|--serve|--provider-status", wrapper_text)
             self.assertIn("tmux new-session", wrapper_text)
             curl_log_text = curl_log.read_text(encoding="utf-8")
             self.assertIn("--connect-timeout 20", curl_log_text)

@@ -30,6 +30,7 @@ from cli.agent_cli.ui.tab_session_manager_runtime_factory import (
     _runtime_policy_metadata_for_sidecar,
     _should_fallback_to_start_for_codex_fork,
 )
+from cli.agent_cli.ui import tab_session_manager_title_runtime as title_runtime
 from cli.agent_cli.ui.tab_session_restore_prefetch import CodexSidecarRestorePrefetch
 from cli.agent_cli.ui.tab_session_manager_state import (
     _HISTORY_TEXT_BLOCK_TYPES,
@@ -185,17 +186,6 @@ class TabSessionManager:
         )
         self._bind_visible_child_tab_backend(initial_session.tab_id, initial_session.runtime)
 
-    @property
-    def active_session(self) -> TabSession:
-        return self._tabs[self._active_tab_id]
-
-    @property
-    def active_tab_id(self) -> str:
-        return self._active_tab_id
-
-    def get(self, tab_id: str) -> TabSession | None:
-        return self._tabs.get(tab_id)
-
     def _start_scroll_capture_timer(self) -> None:
         set_interval = getattr(self._app, "set_interval", None)
         if callable(set_interval):
@@ -294,35 +284,6 @@ class TabSessionManager:
             self,
             collaborators=_manifest_runtime_collaborators(),
         )
-
-    def _base_tab_label(self, session: TabSession) -> str:
-        return ui_state_runtime._base_tab_label(self, session)
-
-    def _decorated_tab_label(self, session: TabSession) -> str:
-        return ui_state_runtime._decorated_tab_label(self, session)
-
-    def tab_labels(self) -> list[tuple[str, str, bool]]:
-        return ui_state_runtime.tab_labels(self)
-
-    def display_tab_label(self, tab_id: str) -> str:
-        return ui_state_runtime.display_tab_label(self, tab_id)
-
-    def rename_tab(self, tab_id: str, label: str) -> bool:
-        session = self._tabs.get(tab_id)
-        if session is None:
-            return False
-        session.custom_label = " ".join(str(label or "").split())
-        self.save_manifest()
-        return True
-
-    def mark_master(self, tab_id: str) -> bool:
-        session = self._tabs.get(tab_id)
-        if session is None:
-            return False
-        session.role = "master"
-        session.parent_tab_id = ""
-        self.save_manifest()
-        return True
 
     child_tab_ids = _delegate_global("_child_tab_ids")
     child_task_runs = _delegate_global("_child_task_runs")
@@ -576,3 +537,12 @@ TabSessionManager._assignment_ref_from_request = _static_delegate_global(
 TabSessionManager.start_task_run = _delegate_global("_start_task_run")
 TabSessionManager.complete_task_run = _delegate_global("_complete_task_run")
 TabSessionManager.fail_task_run = _delegate_global("_fail_task_run")
+TabSessionManager.active_session = property(title_runtime.active_session)
+TabSessionManager.active_tab_id = property(title_runtime.active_tab_id)
+TabSessionManager.get = title_runtime.get
+TabSessionManager._base_tab_label = title_runtime._base_tab_label
+TabSessionManager._decorated_tab_label = title_runtime._decorated_tab_label
+TabSessionManager.tab_labels = title_runtime.tab_labels
+TabSessionManager.display_tab_label = title_runtime.display_tab_label
+TabSessionManager.rename_tab = title_runtime.rename_tab
+TabSessionManager.mark_master = title_runtime.mark_master

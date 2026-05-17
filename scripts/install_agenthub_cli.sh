@@ -124,7 +124,7 @@ has_explicit_run_mode() {
   local arg
   for arg in "$@"; do
     case "$arg" in
-      -h|--help|--headless|--serve|--provider-status|--stdin|--prompt|--prompt=*|--json|--jsonl|--output-format|--output-format=*|--resume|--resume=*|--resume-last|--resume-path|--resume-path=*|resume)
+      -h|--help|--version|-V|--headless|--serve|--provider-status|--stdin|--prompt|--prompt=*|--json|--jsonl|--output-format|--output-format=*|--resume|--resume=*|--resume-last|--resume-path|--resume-path=*|resume)
         return 0
         ;;
     esac
